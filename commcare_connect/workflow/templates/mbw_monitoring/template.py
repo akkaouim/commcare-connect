@@ -119,6 +119,8 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
     var [showCloseForm, setShowCloseForm] = React.useState(false);
     var [closeAction, setCloseAction] = React.useState('none');
     var [closeNote, setCloseNote] = React.useState('');
+    var [monthlyViewPct, setMonthlyViewPct] = React.useState(false);
+    var [monthlyCountMode, setMonthlyCountMode] = React.useState('ratio'); // 'ratio' | 'completed' | 'scheduled'
 
     // Column selector for Overview table
     var OVERVIEW_COLUMNS = [
@@ -950,6 +952,48 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
     allMotherIds.sort(function(a, b) {
         return (motherNamesMap[a] || a).localeCompare(motherNamesMap[b] || b);
     });
+
+    // ---- Build monthly visit schedule data ----
+    var MONTHLY_VISIT_MONTHS = [
+        '2025-09', '2025-10', '2025-11', '2025-12',
+        '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07'
+    ];
+    var MONTHLY_VISIT_TYPES = ['ANC', 'Postnatal', 'Week 1', 'Month 1', 'Month 3', 'Month 6'];
+    var MONTHLY_VISIT_LABELS = {
+        '2025-09': 'Sep 25', '2025-10': 'Oct 25', '2025-11': 'Nov 25', '2025-12': 'Dec 25',
+        '2026-01': 'Jan 26', '2026-02': 'Feb 26', '2026-03': 'Mar 26',
+        '2026-04': 'Apr 26', '2026-05': 'May 26', '2026-06': 'Jun 26', '2026-07': 'Jul 26'
+    };
+    var monthlyVisitData = {};
+    MONTHLY_VISIT_TYPES.forEach(function(vt) {
+        monthlyVisitData[vt] = {};
+        MONTHLY_VISIT_MONTHS.forEach(function(m) {
+            monthlyVisitData[vt][m] = { completed: 0, total: 0 };
+        });
+    });
+    Object.keys(fuDrilldown).forEach(function(username) {
+        if (filterFlws.length > 0 && filterFlws.indexOf(username) < 0) return;
+        (fuDrilldown[username] || []).forEach(function(mother) {
+            (mother.visits || []).forEach(function(v) {
+                var sched = v.visit_date_scheduled;
+                if (!sched || !v.visit_type) return;
+                var monthKey = sched.substring(0, 7);
+                if (!monthlyVisitData[v.visit_type] || !monthlyVisitData[v.visit_type][monthKey]) return;
+                monthlyVisitData[v.visit_type][monthKey].total += 1;
+                if (v.status && v.status.indexOf('Completed') === 0) {
+                    monthlyVisitData[v.visit_type][monthKey].completed += 1;
+                }
+            });
+        });
+    });
+
+    var fmtVisitCell = function(completed, total) {
+        if (total === 0) return null;
+        if (monthlyViewPct) return Math.round(completed / total * 100) + '%';
+        if (monthlyCountMode === 'completed') return String(completed);
+        if (monthlyCountMode === 'scheduled') return String(total);
+        return completed + ' / ' + total;
+    };
 
     // ---- Build FLW prompt for OCS AI Assistant ----
     var buildFLWPrompt = function(username) {
@@ -2898,6 +2942,129 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                         {(!dashData?.performance_data || dashData.performance_data.length === 0) && (
                             <div className="px-4 py-8 text-center text-sm text-gray-500">
                                 No performance data available. Data will appear after the dashboard finishes loading.
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Monthly Visit Schedule Table */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 mt-4" style={{overflow: 'clip'}}>
+                        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-start justify-between">
+                            <div>
+                                <h3 className="text-sm font-semibold text-gray-700">
+                                    <i className="fa-solid fa-calendar-check mr-1"></i> Monthly Visit Schedule
+                                </h3>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    {monthlyViewPct ? 'Completion rate (%) by type and month' : monthlyCountMode === 'completed' ? 'Completed visits by type and month' : monthlyCountMode === 'scheduled' ? 'Total scheduled visits by type and month' : 'Completed vs total scheduled visits by type and month'} (Sep 2025 &ndash; Jul 2026).
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 ml-3 mt-0.5">
+                                {!monthlyViewPct && (
+                                    <span className="inline-flex rounded border border-gray-300 overflow-hidden">
+                                        {[
+                                            { key: 'ratio', label: 'X / Y' },
+                                            { key: 'completed', label: 'Completed' },
+                                            { key: 'scheduled', label: 'Scheduled' },
+                                        ].map(function(opt) {
+                                            var active = monthlyCountMode === opt.key;
+                                            return (
+                                                <button
+                                                    key={opt.key}
+                                                    onClick={function() { setMonthlyCountMode(opt.key); }}
+                                                    className={'px-2 py-1 text-xs font-medium whitespace-nowrap ' + (active ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100')}
+                                                >
+                                                    {opt.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </span>
+                                )}
+                                <button
+                                    onClick={function() { setMonthlyViewPct(!monthlyViewPct); }}
+                                    className="px-2.5 py-1 text-xs font-medium rounded border border-gray-300 bg-white text-gray-600 hover:bg-gray-100 whitespace-nowrap"
+                                    title={monthlyViewPct ? 'Switch to counts' : 'Switch to percentages'}
+                                >
+                                    {monthlyViewPct ? <span><i className="fa-solid fa-hashtag mr-1"></i>Counts</span> : <span><i className="fa-solid fa-percent mr-1"></i>Percent</span>}
+                                </button>
+                            </div>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table data-sticky-header className="min-w-full divide-y divide-gray-200 text-sm">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-10">Visit Type</th>
+                                        {MONTHLY_VISIT_MONTHS.map(function(m) {
+                                            return <th key={m} className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{MONTHLY_VISIT_LABELS[m]}</th>;
+                                        })}
+                                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {MONTHLY_VISIT_TYPES.map(function(vt) {
+                                        var rowData = monthlyVisitData[vt] || {};
+                                        var totalCompleted = 0;
+                                        var totalAll = 0;
+                                        MONTHLY_VISIT_MONTHS.forEach(function(m) {
+                                            totalCompleted += (rowData[m] || {}).completed || 0;
+                                            totalAll += (rowData[m] || {}).total || 0;
+                                        });
+                                        return (
+                                            <tr key={vt} className="hover:bg-gray-50">
+                                                <td className="px-3 py-2 whitespace-nowrap font-medium text-gray-900 sticky left-0 bg-white z-10">{vt}</td>
+                                                {MONTHLY_VISIT_MONTHS.map(function(m) {
+                                                    var cell = rowData[m] || { completed: 0, total: 0 };
+                                                    var display = fmtVisitCell(cell.completed, cell.total);
+                                                    return (
+                                                        <td key={m} className="px-3 py-2 text-center whitespace-nowrap text-gray-700">
+                                                            {display === null ? <span className="text-gray-300">&ndash;</span> : display}
+                                                        </td>
+                                                    );
+                                                })}
+                                                <td className="px-3 py-2 text-center font-semibold whitespace-nowrap text-gray-900">
+                                                    {fmtVisitCell(totalCompleted, totalAll) || <span className="text-gray-300">&ndash;</span>}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                    {/* Totals row */}
+                                    <tr className="bg-gray-50 font-semibold border-t-2 border-gray-300">
+                                        <td className="px-3 py-2 text-gray-900 sticky left-0 bg-gray-50 z-10">Total</td>
+                                        {MONTHLY_VISIT_MONTHS.map(function(m) {
+                                            var colCompleted = 0;
+                                            var colTotal = 0;
+                                            MONTHLY_VISIT_TYPES.forEach(function(vt) {
+                                                var cell = (monthlyVisitData[vt] || {})[m] || { completed: 0, total: 0 };
+                                                colCompleted += cell.completed;
+                                                colTotal += cell.total;
+                                            });
+                                            return (
+                                                <td key={m} className="px-3 py-2 text-center whitespace-nowrap text-gray-900">
+                                                    {fmtVisitCell(colCompleted, colTotal) || <span className="text-gray-300">&ndash;</span>}
+                                                </td>
+                                            );
+                                        })}
+                                        {(function() {
+                                            var grandCompleted = 0;
+                                            var grandTotal = 0;
+                                            MONTHLY_VISIT_TYPES.forEach(function(vt) {
+                                                MONTHLY_VISIT_MONTHS.forEach(function(m) {
+                                                    var cell = (monthlyVisitData[vt] || {})[m] || { completed: 0, total: 0 };
+                                                    grandCompleted += cell.completed;
+                                                    grandTotal += cell.total;
+                                                });
+                                            });
+                                            return (
+                                                <td className="px-3 py-2 text-center whitespace-nowrap text-gray-900">
+                                                    {fmtVisitCell(grandCompleted, grandTotal) || <span className="text-gray-300">&ndash;</span>}
+                                                </td>
+                                            );
+                                        })()}
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        {Object.keys(fuDrilldown).length === 0 && (
+                            <div className="px-4 py-8 text-center text-sm text-gray-500">
+                                No visit data available. Data will appear after the dashboard finishes loading.
                             </div>
                         )}
                     </div>
