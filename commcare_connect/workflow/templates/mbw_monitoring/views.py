@@ -159,7 +159,7 @@ def _get_latest_flw_statuses(
         try:
             for run in wf_access.list_runs():
                 state = run.data.get("state", {})
-                flw_results = state.get("flw_results", {})
+                flw_results = state.get("worker_results", state.get("flw_results", {}))
                 for username, result_data in flw_results.items():
                     if not isinstance(result_data, dict):
                         continue
@@ -450,6 +450,32 @@ class MBWMonitoringStreamView(AnalysisPipelineSSEMixin, BaseSSEStreamView):
                 else:
                     active_usernames = intersection
 
+            # Step 2b: Fetch GS forms from CCHQ early (while OAuth token is still fresh)
+            gs_forms = []
+            gs_app_id = monitoring_session.gs_app_id if monitoring_session else None
+            cchq_oauth = request.session.get("commcare_oauth", {})
+            if cchq_oauth.get("access_token") and timezone.now().timestamp() < cchq_oauth.get("expires_at", 0):
+                for opp_id in opportunity_ids:
+                    try:
+                        yield send_sse_event("Fetching GS forms... (metadata)")
+                        metadata = fetch_opportunity_metadata(access_token, opp_id)
+                        cc_domain = metadata.get("cc_domain")
+                        cc_app_id = metadata.get("cc_app_id")
+                        if cc_domain:
+                            yield send_sse_event("Fetching GS forms... (forms)")
+                            forms = fetch_gs_forms(
+                                request, cc_domain, cc_app_id=cc_app_id,
+                                gs_app_id=gs_app_id, bust_cache=bust_cache,
+                                opportunity_id=opp_id,
+                            )
+                            gs_forms.extend(forms)
+                            yield send_sse_event(f"Fetching GS forms... ({len(gs_forms)} forms)")
+                    except Exception as e:
+                        logger.warning(f"[MBW Dashboard] GS form fetch failed for opp {opp_id}: {e}")
+            else:
+                logger.info("[MBW Dashboard] Skipping GS fetch — CommCare OAuth not available yet")
+            logger.info(f"[MBW Dashboard] Fetched {len(gs_forms)} GS forms from CCHQ")
+
             # Step 3: GPS analysis (on ALL visits, then filter by date)
             yield send_sse_event("Analyzing GPS data...")
 
@@ -503,7 +529,6 @@ class MBWMonitoringStreamView(AnalysisPipelineSSEMixin, BaseSSEStreamView):
             overview_data = None
             visit_status_distribution = None
             registration_forms = []
-            gs_forms = []
 
             # Re-check CCHQ OAuth (may have expired during earlier steps)
             cchq_oauth_valid = bool(
@@ -536,27 +561,6 @@ class MBWMonitoringStreamView(AnalysisPipelineSSEMixin, BaseSSEStreamView):
                     except Exception as e:
                         logger.warning(f"[MBW Dashboard] Registration form fetch failed for opp {opp_id}: {e}")
                 logger.info(f"[MBW Dashboard] Fetched {len(registration_forms)} registration forms")
-
-                # Step 4b: Fetch GS forms from CCHQ (supervisor app, not in Connect pipeline)
-                gs_app_id = monitoring_session.gs_app_id if monitoring_session else None
-                for opp_id in opportunity_ids:
-                    try:
-                        yield send_sse_event("Fetching GS forms... (metadata)")
-                        metadata = fetch_opportunity_metadata(access_token, opp_id)
-                        cc_domain = metadata.get("cc_domain")
-                        cc_app_id = metadata.get("cc_app_id")
-                        if cc_domain:
-                            yield send_sse_event("Fetching GS forms... (forms)")
-                            forms = fetch_gs_forms(
-                                request, cc_domain, cc_app_id=cc_app_id,
-                                gs_app_id=gs_app_id, bust_cache=bust_cache,
-                                opportunity_id=opp_id,
-                            )
-                            gs_forms.extend(forms)
-                            yield send_sse_event(f"Fetching GS forms... ({len(gs_forms)} forms)")
-                    except Exception as e:
-                        logger.warning(f"[MBW Dashboard] GS form fetch failed for opp {opp_id}: {e}")
-                logger.info(f"[MBW Dashboard] Fetched {len(gs_forms)} GS forms from CCHQ")
 
             # Step 5: Build follow-up data from registration forms + pipeline completions
             yield send_sse_event("Calculating follow-up metrics...")
