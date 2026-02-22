@@ -144,6 +144,7 @@ class PythonRedisBackend:
             raise RuntimeError("Connect API timeout") from e
 
         csv_bytes = b"".join(chunks)
+        del chunks  # Free download chunks to reduce peak memory during parsing
 
         # Cache raw bytes
         visit_count = csv_bytes.count(b"\n") - 1 if csv_bytes else 0
