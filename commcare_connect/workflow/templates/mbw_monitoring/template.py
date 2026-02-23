@@ -64,6 +64,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
     var [refreshTrigger, setRefreshTrigger] = React.useState(0);
     var [oauthStatus, setOauthStatus] = React.useState(null);
     var [activeTab, setActiveTab] = React.useState('overview');
+    var [guideSection, setGuideSection] = React.useState({});
     var [overviewSearch, setOverviewSearch] = React.useState('');
     var [overviewSort, setOverviewSort] = React.useState({ col: 'display_name', dir: 'asc' });
     var [gpsSort, setGpsSort] = React.useState({ col: 'username', dir: 'asc' });
@@ -199,6 +200,14 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
         setSseMessages([]);
         setFromSnapshot(false);
         setSnapshotTimestamp(null);
+
+        function toggleGuide(key) {
+            setGuideSection(function(prev) {
+                var n = Object.assign({}, prev);
+                n[key] = !prev[key];
+                return n;
+            });
+        }
 
         function startSSEStream(bustCache) {
             var end = new Date();
@@ -1605,6 +1614,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                         { id: 'gps', label: 'GPS Analysis', icon: 'fa-location-dot' },
                         { id: 'followup', label: 'Follow-Up Rate', icon: 'fa-clipboard-check' },
                         { id: 'performance', label: 'FLW Performance', icon: 'fa-ranking-star' },
+                        { id: 'guide', label: 'Guide', icon: 'fa-book' },
                     ].map(function(t) {
                         var active = activeTab === t.id;
                         return (
@@ -3067,6 +3077,616 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                                 No visit data available. Data will appear after the dashboard finishes loading.
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ========== GUIDE TAB ========== */}
+            {activeTab === 'guide' && (
+                <div className="space-y-3">
+                    {/* Header */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+                        <h2 className="text-lg font-bold text-gray-800">
+                            <i className="fa-solid fa-book mr-2 text-blue-500"></i>
+                            MBW Monitoring Dashboard &mdash; Indicators &amp; Columns Guide
+                        </h2>
+                        <p className="text-sm text-gray-600 mt-2">
+                            This guide explains every column and indicator shown in the dashboard.
+                        </p>
+                        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                            <div className="bg-blue-50 rounded px-3 py-2 text-blue-700 font-medium">
+                                <i className="fa-solid fa-chart-line mr-1"></i> Overview &mdash; 14 columns
+                            </div>
+                            <div className="bg-green-50 rounded px-3 py-2 text-green-700 font-medium">
+                                <i className="fa-solid fa-location-dot mr-1"></i> GPS Analysis &mdash; 7 columns
+                            </div>
+                            <div className="bg-amber-50 rounded px-3 py-2 text-amber-700 font-medium">
+                                <i className="fa-solid fa-clipboard-check mr-1"></i> Follow-Up Rate &mdash; 6+ columns
+                            </div>
+                            <div className="bg-purple-50 rounded px-3 py-2 text-purple-700 font-medium">
+                                <i className="fa-solid fa-ranking-star mr-1"></i> FLW Performance &mdash; 10 columns
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ---- SECTION: Tab 1 Overview ---- */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 rounded-t-lg">
+                            <h3 className="text-sm font-semibold text-gray-700">
+                                <i className="fa-solid fa-chart-line mr-2 text-blue-500"></i> Tab 1: Overview
+                            </h3>
+                        </div>
+                        <div className="p-4 space-y-4 text-sm text-gray-700">
+                                <p>The Overview tab provides a single table with one row per FLW. Each column summarizes a different dimension of performance.</p>
+
+                                {/* # Mothers */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800"># Mothers</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Total unique mothers registered by this FLW, with eligible count in parentheses.</p>
+                                    <p className="mt-1"><strong>How it&apos;s calculated:</strong> Counts unique mother case IDs from &quot;Register Mother&quot; forms. Parenthesized count = mothers with <code className="bg-gray-100 px-1 rounded text-xs">eligible_full_intervention_bonus = &quot;1&quot;</code>.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>Mother count: unique <code>form.var_visit_1..6.mother_case_id</code> per FLW</div>
+                                        <div>Eligible: <code>form.eligible_full_intervention_bonus</code> = &quot;1&quot;</div>
+                                    </div>
+                                </div>
+
+                                {/* GS Score */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">GS Score</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> The FLW&apos;s Gold Standard Visit Checklist score (%).</p>
+                                    <p className="mt-1"><strong>How it&apos;s calculated:</strong> A supervisor completes a checklist form while observing the FLW. The dashboard shows the <strong>first (oldest)</strong> GS score on record.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>Score: <code>form.checklist_percentage</code> (0&ndash;100)</div>
+                                        <div>FLW identity: <code>form.load_flw_connect_id</code></div>
+                                        <div>Ordering: <code>form.meta.timeEnd</code> (oldest first)</div>
+                                    </div>
+                                    <div className="mt-2 flex gap-2 text-xs">
+                                        <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded">&ge;70% Green</span>
+                                        <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">50&ndash;69% Yellow</span>
+                                        <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded">&lt;50% Red</span>
+                                    </div>
+                                </div>
+
+                                {/* Follow-up Rate */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Follow-up Rate</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Percentage of scheduled visits completed, considering only eligible mothers with a 5-day grace period.</p>
+                                    <p className="mt-1"><strong>How it&apos;s calculated:</strong> (completed visits / total visits due 5+ days ago for eligible mothers) &times; 100.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>Scheduled dates: <code>form.var_visit_1..6.visit_date_scheduled</code></div>
+                                        <div>Expiry dates: <code>form.var_visit_1..6.visit_expiry_date</code></div>
+                                        <div>Visit type: <code>form.var_visit_1..6.visit_type</code></div>
+                                        <div>Eligibility: <code>form.eligible_full_intervention_bonus</code> = &quot;1&quot;</div>
+                                        <div>Completion: <code>form.@name</code> mapped via completion flags</div>
+                                    </div>
+                                    <div className="mt-2 flex gap-2 text-xs">
+                                        <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded">&ge;80% Green</span>
+                                        <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">60&ndash;79% Yellow</span>
+                                        <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded">&lt;60% Red</span>
+                                    </div>
+                                </div>
+
+                                {/* Eligible 5+ */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Eligible 5+</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Among eligible mothers, how many are &quot;still on track&quot; (count and %).</p>
+                                    <p className="mt-1"><strong>How it&apos;s calculated:</strong> A mother is on track if she has <strong>5+ completed visits</strong> OR <strong>&le;1 missed visit</strong>.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>Eligibility: <code>form.eligible_full_intervention_bonus</code> = &quot;1&quot;</div>
+                                        <div>Completed: visits with status starting with &quot;Completed&quot;</div>
+                                        <div>Missed: visits past <code>form.var_visit_N.visit_expiry_date</code></div>
+                                    </div>
+                                    <div className="mt-2 flex gap-2 text-xs">
+                                        <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded">&ge;70% Green</span>
+                                        <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">50&ndash;69% Yellow</span>
+                                        <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded">&lt;50% Red</span>
+                                    </div>
+                                </div>
+
+                                {/* % EBF */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">% EBF (Exclusive Breastfeeding)</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Percentage of postnatal visits reporting exclusive breastfeeding.</p>
+                                    <p className="mt-1"><strong>How it&apos;s calculated:</strong> (EBF visits / total visits with breastfeeding data) &times; 100. Rates too low may indicate counseling gaps; rates above 95% may indicate fabrication.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths</strong> (multi-choice field &mdash; &quot;ebf&quot; token = exclusive):</div>
+                                        <div><code>form.feeding_history.pnc_current_bf_status</code></div>
+                                        <div><code>form.feeding_history.oneweek_current_bf_status</code></div>
+                                        <div><code>form.feeding_history.onemonth_current_bf_status</code></div>
+                                        <div><code>form.feeding_history.threemonth_current_bf_status</code></div>
+                                        <div><code>form.feeding_history.sixmonth_current_bf_status</code></div>
+                                    </div>
+                                    <div className="mt-2 flex gap-2 text-xs">
+                                        <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded">50&ndash;85% Green</span>
+                                        <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">31&ndash;49% or 86&ndash;95% Yellow</span>
+                                        <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded">&le;30% or &gt;95% Red</span>
+                                    </div>
+                                </div>
+
+                                {/* Revisit Dist. */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Revisit Dist.</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Average distance (km) between successive GPS coordinates when the FLW revisits the <strong>same mother</strong>.</p>
+                                    <p className="mt-1"><strong>How it&apos;s calculated:</strong> Group visits by mother case ID, sort by time, calculate Haversine distance between consecutive visits, then average across all pairs.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>GPS: <code>form.meta.location</code> or <code>form.meta.location.#text</code></div>
+                                        <div>Mother case ID: <code>form.parents.parent.case.@case_id</code></div>
+                                        <div>Ordering: <code>form.meta.timeEnd</code></div>
+                                    </div>
+                                </div>
+
+                                {/* Meter/Visit */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Meter/Visit</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Median distance (meters) between consecutive visits to <strong>different mothers</strong> within a single day.</p>
+                                    <p className="mt-1"><strong>How it&apos;s calculated:</strong> Per working day: list visits chronologically, keep first per mother, require 2+ unique mothers, calculate distances between consecutive pairs, take median across all days.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>GPS: <code>form.meta.location</code> or <code>form.meta.location.#text</code></div>
+                                        <div>Ordering: <code>form.meta.timeEnd</code></div>
+                                        <div>Dedup: <code>form.parents.parent.case.@case_id</code></div>
+                                        <div>Version filter: <code>form.meta.app_build_version</code></div>
+                                    </div>
+                                    <div className="mt-2 text-xs"><span className="bg-red-100 text-red-800 px-2 py-0.5 rounded">Red flag: &lt;100 meters</span></div>
+                                </div>
+
+                                {/* Minute/Visit */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Minute/Visit</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Median time gap (minutes) between consecutive visits to different mothers within a day.</p>
+                                    <p className="mt-1"><strong>How it&apos;s calculated:</strong> Same grouping as Meter/Visit, but calculates time difference between consecutive form submissions instead of distance.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>Submission time: <code>form.meta.timeEnd</code></div>
+                                        <div>Dedup: <code>form.parents.parent.case.@case_id</code></div>
+                                    </div>
+                                </div>
+
+                                {/* Phone Dup % */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Phone Dup %</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Percentage of mothers whose phone numbers appear more than once across the FLW&apos;s caseload.</p>
+                                    <p className="mt-1"><strong>Why it matters:</strong> High duplicate rates across different mothers may indicate fabricated registrations.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>Phone: <code>form.mother_details.phone_number</code></div>
+                                        <div>Fallback: <code>form.mother_details.back_up_phone_number</code></div>
+                                    </div>
+                                </div>
+
+                                {/* ANC = PNC */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">ANC = PNC</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Number of mothers where ANC and PNC completion dates fall on the <strong>same day</strong>.</p>
+                                    <p className="mt-1"><strong>Why it matters:</strong> ANC (during pregnancy) and PNC (after delivery) on the same day is biologically impossible &mdash; strongly suggests data fabrication.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>ANC date: <code>form.visit_completion.anc_completion_date</code></div>
+                                        <div>PNC date: <code>form.pnc_completion_date</code></div>
+                                    </div>
+                                </div>
+
+                                {/* Parity */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Parity</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> How concentrated (repetitive) the parity values are across the FLW&apos;s mothers. Parity = number of times a woman has given birth (live births or stillbirths after 24 weeks).</p>
+                                    <p className="mt-1"><strong>How it&apos;s calculated:</strong> (mothers with duplicate parity values / total with parity data) &times; 100. Also shows the mode value and its percentage.</p>
+                                    <p className="mt-1"><strong>Why it matters:</strong> A natural population should have diverse parity values. High concentration of a single value may indicate copy-pasting or fabrication.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data path:</strong></div>
+                                        <div><code>form.confirm_visit_information.parity__of_live_births_or_stillbirths_after_24_weeks</code></div>
+                                    </div>
+                                </div>
+
+                                {/* Age */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Age</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> How concentrated (repetitive) the age values are across the FLW&apos;s mothers. Same logic as Parity.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>Primary: <code>form.mother_details.mother_dob</code> (age = today &minus; DOB)</div>
+                                        <div>Fallback 1: <code>form.mother_details.age_in_years_rounded</code></div>
+                                        <div>Fallback 2: <code>form.mother_details.mothers_age</code></div>
+                                    </div>
+                                </div>
+
+                                {/* Age = Reg */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Age = Reg</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Percentage of mothers whose date of birth has the <strong>same month and day</strong> as their registration date.</p>
+                                    <p className="mt-1"><strong>Why it matters:</strong> Statistically very unlikely &mdash; suggests the FLW entered the registration date as the DOB instead of asking.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data paths:</strong></div>
+                                        <div>Mother DOB: <code>form.mother_details.mother_dob</code></div>
+                                        <div>Registration date: <code>received_on</code> (fallback: <code>metadata.timeEnd</code>)</div>
+                                    </div>
+                                </div>
+
+                                {/* Actions */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Actions</h4>
+                                    <p className="mt-1">Interactive buttons per FLW: assessment (Eligible for Renewal / Probation / Suspended), notes, filter, and task creation (with optional AI via OCS).</p>
+                                </div>
+                            </div>
+                    </div>
+
+                    {/* ---- SECTION: Tab 2 GPS Analysis ---- */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 rounded-t-lg">
+                            <h3 className="text-sm font-semibold text-gray-700">
+                                <i className="fa-solid fa-location-dot mr-2 text-green-500"></i> Tab 2: GPS Analysis
+                            </h3>
+                        </div>
+                        <div className="p-4 space-y-4 text-sm text-gray-700">
+                                <p>The GPS Analysis tab focuses on geographic patterns to detect suspicious travel behavior.</p>
+
+                                <div className="bg-blue-50 rounded p-3 text-xs">
+                                    <div className="font-semibold text-blue-800 mb-1">Shared Data Paths (all GPS columns):</div>
+                                    <div className="font-mono leading-relaxed text-blue-900">
+                                        <div>GPS: <code>form.meta.location</code> or <code>form.meta.location.#text</code> (&quot;lat lon alt accuracy&quot;)</div>
+                                        <div>Visit datetime: <code>form.meta.timeEnd</code></div>
+                                        <div>Mother case ID: <code>form.parents.parent.case.@case_id</code></div>
+                                        <div>Case ID: <code>form.case.@case_id</code></div>
+                                        <div>App version: <code>form.meta.app_build_version</code></div>
+                                        <div>Form name: <code>form.@name</code></div>
+                                    </div>
+                                </div>
+
+                                <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">Summary Cards</h4>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full text-xs">
+                                        <thead><tr className="bg-gray-50">
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Card</th>
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Description</th>
+                                        </tr></thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            <tr><td className="px-3 py-1.5 font-medium">Total Visits</td><td className="px-3 py-1.5">Form submissions within selected date range</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Flagged Visits</td><td className="px-3 py-1.5">Visits where distance from previous visit to same mother &gt; 5 km</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Date Range</td><td className="px-3 py-1.5">Selected date range for analysis</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Flag Threshold</td><td className="px-3 py-1.5">5 km</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">FLW Table Columns</h4>
+
+                                <div className="border-l-4 border-green-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">With GPS</h4>
+                                    <p className="mt-1">Count and percentage of visits with parseable GPS coordinates. Shown as &quot;X (Y%)&quot;.</p>
+                                </div>
+
+                                <div className="border-l-4 border-green-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Flagged</h4>
+                                    <p className="mt-1">Visits where distance between consecutive visits to the <strong>same mother</strong> exceeds 5 km. Red text when any are flagged.</p>
+                                </div>
+
+                                <div className="border-l-4 border-green-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Unique Cases</h4>
+                                    <p className="mt-1">Distinct mother cases visited. Data path: count of unique <code className="bg-gray-100 px-1 rounded text-xs">form.case.@case_id</code>.</p>
+                                </div>
+
+                                <div className="border-l-4 border-green-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Avg Case Dist / Max Case Dist</h4>
+                                    <p className="mt-1">Average and maximum Haversine distance (km) between consecutive visits to the same mother. Max is red and bold when &gt; 5 km.</p>
+                                </div>
+
+                                <div className="border-l-4 border-green-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Trailing 7 Days</h4>
+                                    <p className="mt-1">Sparkline bar chart showing daily travel over the last 7 days. Each bar = total path distance that day (sum of distances between consecutive visit locations).</p>
+                                </div>
+
+                                <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">GPS Drill-Down</h4>
+                                <p>Clicking &quot;Details&quot; shows individual visit records with: Date, Form type, Entity (mother name), GPS coordinates, Distance from previous visit to same mother, and Flag status (&gt; 5 km).</p>
+                            </div>
+                    </div>
+
+                    {/* ---- SECTION: Tab 3 Follow-Up Rate ---- */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 rounded-t-lg">
+                            <h3 className="text-sm font-semibold text-gray-700">
+                                <i className="fa-solid fa-clipboard-check mr-2 text-amber-500"></i> Tab 3: Follow-Up Rate
+                            </h3>
+                        </div>
+                        <div className="p-4 space-y-4 text-sm text-gray-700">
+                                <p>The Follow-Up Rate tab tracks whether each FLW is completing their scheduled visits on time.</p>
+
+                                <div className="bg-amber-50 rounded p-3 text-xs">
+                                    <div className="font-semibold text-amber-800 mb-1">Key Data Paths (two data sources merged):</div>
+                                    <div className="font-mono leading-relaxed text-amber-900">
+                                        <div className="font-semibold mt-1">From &quot;Register Mother&quot; forms (CCHQ) &mdash; expected visits:</div>
+                                        <div>&bull; <code>form.var_visit_1..6.visit_type</code>, <code>.visit_date_scheduled</code>, <code>.visit_expiry_date</code>, <code>.mother_case_id</code></div>
+                                        <div>&bull; Create flags: <code>form.var_visit_N.create_antenatal_visit</code>, <code>create_postnatal_visit</code>, etc. = &quot;1&quot;</div>
+                                        <div>&bull; Eligibility: <code>form.eligible_full_intervention_bonus</code> = &quot;1&quot;</div>
+                                        <div className="font-semibold mt-2">From visit forms (Connect API) &mdash; completed visits:</div>
+                                        <div>&bull; <code>form.@name</code> mapped to visit type</div>
+                                        <div>&bull; <code>form.parents.parent.case.@case_id</code> (mother link)</div>
+                                        <div>&bull; Completion flags: <code>antenatal_visit_completion</code>, <code>postnatal_visit_completion</code>, etc.</div>
+                                    </div>
+                                </div>
+
+                                <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">FLW Table Columns</h4>
+
+                                <div className="border-l-4 border-amber-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Follow-up Rate</h4>
+                                    <p className="mt-1">Same as Overview: (completed / due 5+ days ago for eligible mothers) &times; 100. Shown with colored progress bar.</p>
+                                </div>
+                                <div className="border-l-4 border-amber-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Completed / Due / Missed</h4>
+                                    <p className="mt-1"><strong>Completed:</strong> Both on-time and late, with % of total. <strong>Due:</strong> Not yet completed but before expiry. <strong>Missed:</strong> Past expiry, never completed.</p>
+                                </div>
+                                <div className="border-l-4 border-amber-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Per-Visit-Type Breakdown</h4>
+                                    <p className="mt-1">Six mini-columns (ANC, Postnatal, Week 1, Month 1, Month 3, Month 6) showing completed/due/missed counts individually.</p>
+                                </div>
+
+                                <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">Visit Status Definitions</h4>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full text-xs">
+                                        <thead><tr className="bg-gray-50">
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Status</th>
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Meaning</th>
+                                        </tr></thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            <tr><td className="px-3 py-1.5 font-medium">Completed - On Time</td><td className="px-3 py-1.5">Within on-time window (7 days; 4 for Postnatal)</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Completed - Late</td><td className="px-3 py-1.5">After on-time window but before expiry</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Due - On Time</td><td className="px-3 py-1.5">Not completed, within on-time window</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Due - Late</td><td className="px-3 py-1.5">Not completed, past on-time but before expiry</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Missed</td><td className="px-3 py-1.5">Past expiry, will never be completed</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Not Due Yet</td><td className="px-3 py-1.5">Scheduled date hasn&apos;t arrived</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">On-Time Windows</h4>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full text-xs">
+                                        <thead><tr className="bg-gray-50">
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Visit Type</th>
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Window</th>
+                                        </tr></thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            <tr><td className="px-3 py-1.5">ANC Visit</td><td className="px-3 py-1.5">7 days from scheduled date</td></tr>
+                                            <tr><td className="px-3 py-1.5">Postnatal / Post Delivery</td><td className="px-3 py-1.5"><strong>4 days</strong> from delivery (clinical urgency)</td></tr>
+                                            <tr><td className="px-3 py-1.5">1 Week Visit</td><td className="px-3 py-1.5">7 days</td></tr>
+                                            <tr><td className="px-3 py-1.5">1 Month Visit</td><td className="px-3 py-1.5">7 days</td></tr>
+                                            <tr><td className="px-3 py-1.5">3 Month Visit</td><td className="px-3 py-1.5">7 days</td></tr>
+                                            <tr><td className="px-3 py-1.5">6 Month Visit</td><td className="px-3 py-1.5">7 days</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">Mother Drill-Down Fields</h4>
+                                <p>Clicking an FLW row expands per-mother details:</p>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full text-xs">
+                                        <thead><tr className="bg-gray-50">
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Field</th>
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Data Path</th>
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Source</th>
+                                        </tr></thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            <tr><td className="px-3 py-1.5">Mother name</td><td className="px-3 py-1.5 font-mono"><code>form.mother_details.format_mother_name</code></td><td className="px-3 py-1.5">Register Mother</td></tr>
+                                            <tr><td className="px-3 py-1.5">Age</td><td className="px-3 py-1.5 font-mono"><code>form.mother_details.mother_dob</code></td><td className="px-3 py-1.5">Register Mother</td></tr>
+                                            <tr><td className="px-3 py-1.5">Phone</td><td className="px-3 py-1.5 font-mono"><code>form.mother_details.phone_number</code></td><td className="px-3 py-1.5">Register Mother</td></tr>
+                                            <tr><td className="px-3 py-1.5">Registration date</td><td className="px-3 py-1.5 font-mono"><code>received_on</code></td><td className="px-3 py-1.5">Register Mother</td></tr>
+                                            <tr><td className="px-3 py-1.5">Household size</td><td className="px-3 py-1.5 font-mono"><code>form.number_of_other_household_members</code></td><td className="px-3 py-1.5">Register Mother</td></tr>
+                                            <tr><td className="px-3 py-1.5">Preferred visit time</td><td className="px-3 py-1.5 font-mono"><code>form.var_visit_1.preferred_visit_time</code></td><td className="px-3 py-1.5">Register Mother</td></tr>
+                                            <tr><td className="px-3 py-1.5">ANC completion</td><td className="px-3 py-1.5 font-mono"><code>form.visit_completion.anc_completion_date</code></td><td className="px-3 py-1.5">ANC Visit</td></tr>
+                                            <tr><td className="px-3 py-1.5">PNC completion</td><td className="px-3 py-1.5 font-mono"><code>form.pnc_completion_date</code></td><td className="px-3 py-1.5">Post Delivery Visit</td></tr>
+                                            <tr><td className="px-3 py-1.5">Expected delivery</td><td className="px-3 py-1.5 font-mono"><code>form.mother_birth_outcome.expected_delivery_date</code></td><td className="px-3 py-1.5">Register Mother</td></tr>
+                                            <tr><td className="px-3 py-1.5">Baby DOB</td><td className="px-3 py-1.5 font-mono"><code>form.capture_the_following_birth_details.baby_dob</code></td><td className="px-3 py-1.5">Post Delivery Visit</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                    </div>
+
+                    {/* ---- SECTION: Tab 4 FLW Performance ---- */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 rounded-t-lg">
+                            <h3 className="text-sm font-semibold text-gray-700">
+                                <i className="fa-solid fa-ranking-star mr-2 text-purple-500"></i> Tab 4: FLW Performance
+                            </h3>
+                        </div>
+                        <div className="p-4 space-y-4 text-sm text-gray-700">
+                                <p>Aggregates case-level metrics grouped by each FLW&apos;s latest assessment status.</p>
+
+                                <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">Assessment Status Categories</h4>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full text-xs">
+                                        <thead><tr className="bg-gray-50">
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Status</th>
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Color</th>
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Meaning</th>
+                                        </tr></thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            <tr><td className="px-3 py-1.5 font-medium">Eligible for Renewal</td><td className="px-3 py-1.5"><span className="inline-block w-3 h-3 rounded-full bg-green-500 mr-1"></span> Green</td><td className="px-3 py-1.5">Good performance, eligible for contract renewal</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Probation</td><td className="px-3 py-1.5"><span className="inline-block w-3 h-3 rounded-full bg-yellow-500 mr-1"></span> Yellow</td><td className="px-3 py-1.5">Underperforming, not eligible for renewal</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Suspended</td><td className="px-3 py-1.5"><span className="inline-block w-3 h-3 rounded-full bg-red-500 mr-1"></span> Red</td><td className="px-3 py-1.5">Evidence of fraud or severe deficiencies</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">No Category</td><td className="px-3 py-1.5"><span className="inline-block w-3 h-3 rounded-full bg-gray-400 mr-1"></span> Gray</td><td className="px-3 py-1.5">Not yet assessed</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div className="bg-gray-50 rounded px-3 py-2 font-mono text-xs">
+                                    <strong>Data path:</strong> <code>run.data.state.worker_results.&#123;username&#125;.result</code> (most recent assessment)
+                                </div>
+
+                                <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">Performance Table Columns</h4>
+                                <div className="space-y-3">
+                                    <div className="border-l-4 border-purple-200 pl-4 py-2">
+                                        <h4 className="font-semibold text-gray-800"># FLWs / Total Cases / Eligible at Reg</h4>
+                                        <p className="mt-1">Count of FLWs in status group, total registered mothers, and mothers with <code className="bg-gray-100 px-1 rounded text-xs">eligible_full_intervention_bonus = &quot;1&quot;</code>.</p>
+                                    </div>
+                                    <div className="border-l-4 border-purple-200 pl-4 py-2">
+                                        <h4 className="font-semibold text-gray-800">Still Eligible / % Still Eligible</h4>
+                                        <p className="mt-1">Among eligible mothers: those with 5+ completed visits OR &le;1 missed visit. Percentage = (still eligible / eligible at reg) &times; 100.</p>
+                                        <div className="mt-2 flex gap-2 text-xs">
+                                            <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded">&ge;70% Green</span>
+                                            <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">50&ndash;69% Yellow</span>
+                                            <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded">&lt;50% Red</span>
+                                        </div>
+                                    </div>
+                                    <div className="border-l-4 border-purple-200 pl-4 py-2">
+                                        <h4 className="font-semibold text-gray-800">% &le;1 Missed</h4>
+                                        <p className="mt-1">Percentage of <strong>all</strong> mothers (not just eligible) with 0 or 1 missed visits.</p>
+                                    </div>
+                                    <div className="border-l-4 border-purple-200 pl-4 py-2">
+                                        <h4 className="font-semibold text-gray-800">% 4 Visits On Track</h4>
+                                        <p className="mt-1">Among mothers whose Month 1 visit is due (5-day grace): % with 3+ completed visits.</p>
+                                        <div className="mt-1 bg-gray-50 rounded px-3 py-1 font-mono text-xs">Denominator: <code>visit_date_scheduled</code> for &quot;1 Month Visit&quot; &le; today &minus; 5 days</div>
+                                    </div>
+                                    <div className="border-l-4 border-purple-200 pl-4 py-2">
+                                        <h4 className="font-semibold text-gray-800">% 5 Visits Complete</h4>
+                                        <p className="mt-1">Among mothers whose Month 3 visit is due: % with 4+ completed visits.</p>
+                                        <div className="mt-1 bg-gray-50 rounded px-3 py-1 font-mono text-xs">Denominator: <code>visit_date_scheduled</code> for &quot;3 Month Visit&quot; &le; today &minus; 5 days</div>
+                                    </div>
+                                    <div className="border-l-4 border-purple-200 pl-4 py-2">
+                                        <h4 className="font-semibold text-gray-800">% 6 Visits Complete</h4>
+                                        <p className="mt-1">Among mothers whose Month 6 visit is due: % with 5+ completed visits.</p>
+                                        <div className="mt-1 bg-gray-50 rounded px-3 py-1 font-mono text-xs">Denominator: <code>visit_date_scheduled</code> for &quot;6 Month Visit&quot; &le; today &minus; 5 days</div>
+                                    </div>
+                                </div>
+
+                                <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">Monthly Visit Schedule Sub-Table</h4>
+                                <p>Below the performance table, a second table shows visit completion rates by <strong>visit type</strong> and <strong>month</strong>.</p>
+                                <ul className="list-disc pl-5 space-y-1 text-xs">
+                                    <li><strong>Rows:</strong> One per visit type (ANC, Postnatal, Week 1, Month 1, Month 3, Month 6) + Totals</li>
+                                    <li><strong>Columns:</strong> One per month + Total column</li>
+                                    <li><strong>Display modes</strong> (toggle buttons): X/Y ratio, Completed only, Scheduled only, % Percent</li>
+                                </ul>
+                                <div className="bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                    <div><strong>Data paths:</strong></div>
+                                    <div>Visit type: <code>form.var_visit_N.visit_type</code></div>
+                                    <div>Month bucket: <code>form.var_visit_N.visit_date_scheduled</code></div>
+                                    <div>Completion: pipeline form submissions matched via completion flags</div>
+                                </div>
+                            </div>
+                    </div>
+
+                    {/* ---- SECTION: Red Flag Indicators ---- */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 rounded-t-lg">
+                            <h3 className="text-sm font-semibold text-gray-700">
+                                <i className="fa-solid fa-triangle-exclamation mr-2 text-red-500"></i> Red Flag Indicators
+                            </h3>
+                        </div>
+                        <div className="p-4 text-sm text-gray-700">
+                                <p className="mb-3">When creating a task for an FLW (via OCS AI), the system automatically detects these red flags and includes them in the AI prompt.</p>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full text-xs">
+                                        <thead><tr className="bg-gray-50">
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Red Flag</th>
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">Threshold</th>
+                                            <th className="px-3 py-1.5 text-left font-medium text-gray-600">What It Means</th>
+                                        </tr></thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            <tr><td className="px-3 py-1.5 font-medium">Low Gold Standard Score</td><td className="px-3 py-1.5">&lt; 50%</td><td className="px-3 py-1.5">Poorly performed on supervised assessment</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Low Follow-Up Visit Rate</td><td className="px-3 py-1.5">&lt; 50%</td><td className="px-3 py-1.5">More than half of due visits incomplete</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Low Case Eligibility Rate</td><td className="px-3 py-1.5">Eligible 5+ &lt; 50%</td><td className="px-3 py-1.5">Most eligible mothers are off track</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Low Travel Distance</td><td className="px-3 py-1.5">Meter/Visit &lt; 100m</td><td className="px-3 py-1.5">Forms submitted from same location</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">High Phone Duplicate Rate</td><td className="px-3 py-1.5">Phone Dup &gt; 30%</td><td className="px-3 py-1.5">Too many mothers sharing phone numbers</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">ANC/PNC Same-Date</td><td className="px-3 py-1.5">ANC=PNC &ge; 5</td><td className="px-3 py-1.5">Multiple biologically impossible same-day completions</td></tr>
+                                            <tr><td className="px-3 py-1.5 font-medium">Abnormal EBF Rate</td><td className="px-3 py-1.5">&le; 30% or &gt; 95%</td><td className="px-3 py-1.5">Breastfeeding rate outside expected range</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                    </div>
+
+                    {/* ---- SECTION: Color Coding Reference ---- */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 rounded-t-lg">
+                            <h3 className="text-sm font-semibold text-gray-700">
+                                <i className="fa-solid fa-palette mr-2 text-indigo-500"></i> Color Coding Reference
+                            </h3>
+                        </div>
+                        <div className="p-4 space-y-4 text-sm text-gray-700">
+                                <div>
+                                    <h4 className="font-semibold text-gray-800 mb-2">Follow-Up Rate / GS Score</h4>
+                                    <div className="grid grid-cols-3 gap-2 text-xs">
+                                        <div className="bg-green-100 text-green-800 rounded px-3 py-2 text-center"><div className="font-semibold">Green</div>Follow-up &ge;80% | GS &ge;70%</div>
+                                        <div className="bg-yellow-100 text-yellow-800 rounded px-3 py-2 text-center"><div className="font-semibold">Yellow</div>Follow-up 60&ndash;79% | GS 50&ndash;69%</div>
+                                        <div className="bg-red-100 text-red-800 rounded px-3 py-2 text-center"><div className="font-semibold">Red</div>Follow-up &lt;60% | GS &lt;50%</div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold text-gray-800 mb-2">% EBF</h4>
+                                    <div className="grid grid-cols-3 gap-2 text-xs">
+                                        <div className="bg-green-100 text-green-800 rounded px-3 py-2 text-center"><div className="font-semibold">Green</div>50&ndash;85%</div>
+                                        <div className="bg-yellow-100 text-yellow-800 rounded px-3 py-2 text-center"><div className="font-semibold">Yellow</div>31&ndash;49% or 86&ndash;95%</div>
+                                        <div className="bg-red-100 text-red-800 rounded px-3 py-2 text-center"><div className="font-semibold">Red</div>&le;30% or &gt;95%</div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold text-gray-800 mb-2">Eligible 5+ / % Still Eligible</h4>
+                                    <div className="grid grid-cols-3 gap-2 text-xs">
+                                        <div className="bg-green-100 text-green-800 rounded px-3 py-2 text-center"><div className="font-semibold">Green</div>&ge;70%</div>
+                                        <div className="bg-yellow-100 text-yellow-800 rounded px-3 py-2 text-center"><div className="font-semibold">Yellow</div>50&ndash;69%</div>
+                                        <div className="bg-red-100 text-red-800 rounded px-3 py-2 text-center"><div className="font-semibold">Red</div>&lt;50%</div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold text-gray-800 mb-2">GPS Flags</h4>
+                                    <div className="grid grid-cols-3 gap-2 text-xs">
+                                        <div className="bg-red-50 text-red-800 rounded px-3 py-2 text-center">Revisit to same mother &gt; 5 km</div>
+                                        <div className="bg-red-50 text-red-800 rounded px-3 py-2 text-center">Max Case Dist &gt; 5 km</div>
+                                        <div className="bg-red-50 text-red-800 rounded px-3 py-2 text-center">Meter/Visit &lt; 100 m</div>
+                                    </div>
+                                </div>
+                            </div>
+                    </div>
+
+                    {/* ---- SECTION: Key Definitions ---- */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 rounded-t-lg">
+                            <h3 className="text-sm font-semibold text-gray-700">
+                                <i className="fa-solid fa-circle-info mr-2 text-gray-500"></i> Key Definitions
+                            </h3>
+                        </div>
+                        <div className="p-4 space-y-4 text-sm text-gray-700">
+                                <div className="border-l-4 border-gray-300 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Eligibility</h4>
+                                    <p className="mt-1">A mother is &quot;eligible for the full intervention bonus&quot; if <code className="bg-gray-100 px-1 rounded text-xs">eligible_full_intervention_bonus = &quot;1&quot;</code> in her registration form. Set at registration, does not change. Follow-up rate and Performance tab metrics only count eligible mothers.</p>
+                                </div>
+                                <div className="border-l-4 border-gray-300 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Grace Period (5 days)</h4>
+                                    <p className="mt-1">The follow-up rate only counts visits whose scheduled date was 5+ days ago. This gives FLWs a reasonable window to complete recent visits before they affect their score.</p>
+                                </div>
+                                <div className="border-l-4 border-gray-300 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Haversine Distance</h4>
+                                    <p className="mt-1">Straight-line distance between two GPS points on Earth&apos;s surface, accounting for curvature (radius = 6,371 km). Used for all distance calculations. Real travel distances are longer, but Haversine provides a consistent baseline.</p>
+                                </div>
+                                <div className="border-l-4 border-gray-300 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Assessment Status</h4>
+                                    <p className="mt-1">Result assigned during monitoring or audit: <strong>Eligible for Renewal</strong> (good), <strong>Probation</strong> (underperforming), <strong>Suspended</strong> (fraud/severe issues &mdash; label only, no platform action). Dashboard uses the most recent assessment.</p>
+                                    <div className="mt-1 bg-gray-50 rounded px-3 py-1 font-mono text-xs"><code>run.data.state.worker_results.&#123;username&#125;.result</code></div>
+                                </div>
+                                <div className="border-l-4 border-gray-300 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Visit Types</h4>
+                                    <div className="mt-2 overflow-x-auto">
+                                        <table className="min-w-full text-xs">
+                                            <thead><tr className="bg-gray-50">
+                                                <th className="px-3 py-1.5 text-left font-medium text-gray-600">Visit</th>
+                                                <th className="px-3 py-1.5 text-left font-medium text-gray-600">When</th>
+                                                <th className="px-3 py-1.5 text-left font-medium text-gray-600">Purpose</th>
+                                            </tr></thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                <tr><td className="px-3 py-1.5 font-medium">ANC Visit</td><td className="px-3 py-1.5">~28 weeks of pregnancy</td><td className="px-3 py-1.5">Antenatal care assessment</td></tr>
+                                                <tr><td className="px-3 py-1.5 font-medium">Postnatal</td><td className="px-3 py-1.5">At delivery (EDD)</td><td className="px-3 py-1.5">Immediate postnatal care</td></tr>
+                                                <tr><td className="px-3 py-1.5 font-medium">1 Week Visit</td><td className="px-3 py-1.5">7 days after delivery</td><td className="px-3 py-1.5">Early newborn care</td></tr>
+                                                <tr><td className="px-3 py-1.5 font-medium">1 Month Visit</td><td className="px-3 py-1.5">30 days after delivery</td><td className="px-3 py-1.5">Growth monitoring</td></tr>
+                                                <tr><td className="px-3 py-1.5 font-medium">3 Month Visit</td><td className="px-3 py-1.5">90 days after delivery</td><td className="px-3 py-1.5">Continued follow-up</td></tr>
+                                                <tr><td className="px-3 py-1.5 font-medium">6 Month Visit</td><td className="px-3 py-1.5">180 days after delivery</td><td className="px-3 py-1.5">Final program visit</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
                     </div>
                 </div>
             )}
