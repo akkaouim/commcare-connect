@@ -519,6 +519,11 @@ class MBWMonitoringStreamView(AnalysisPipelineSSEMixin, BaseSSEStreamView):
             filtered_gps_visits = filter_visits_by_date(gps_result.visits, start_date, end_date)
             gps_result = build_result_from_analyzed_visits(filtered_gps_visits, flw_names)
 
+            # Group visits by FLW for GPS drill-down (avoids separate API call)
+            visits_by_flw = {}
+            for v in filtered_gps_visits:
+                visits_by_flw.setdefault(v.username, []).append(serialize_visit(v))
+
             gps_data = {
                 "total_visits": gps_result.total_visits,
                 "total_flagged": gps_result.total_flagged,
@@ -526,6 +531,8 @@ class MBWMonitoringStreamView(AnalysisPipelineSSEMixin, BaseSSEStreamView):
                 "date_range_end": end_date.isoformat(),
                 "flw_summaries": [serialize_flw_summary(flw) for flw in gps_result.flw_summaries],
             }
+            for summary_dict in gps_data["flw_summaries"]:
+                summary_dict["visits"] = visits_by_flw.get(summary_dict["username"], [])
 
             # Step 4: Fetch registration forms from CCHQ
             yield send_sse_event("Fetching registration data...")

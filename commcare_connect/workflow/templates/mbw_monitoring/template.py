@@ -97,6 +97,14 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
     var [appliedAppVersionVal, setAppliedAppVersionVal] = React.useState(instance.state?.app_version_val || '14');
     var [hiddenCategories, setHiddenCategories] = React.useState({});
 
+    // GPS Map state
+    var [leafletReady, setLeafletReady] = React.useState(false);
+    var [showMapVisits, setShowMapVisits] = React.useState(true);
+    var [showMapMothers, setShowMapMothers] = React.useState(true);
+    var [selectedMother, setSelectedMother] = React.useState(null);
+    var mapInstanceRef = React.useRef(null);
+    var markersRef = React.useRef(null);
+
     // OCS Task Modal state
     var [showOcsModal, setShowOcsModal] = React.useState(false);
     var [ocsModalFlw, setOcsModalFlw] = React.useState(null);
@@ -403,6 +411,128 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
         };
     }, [activeTab, sseComplete]);
 
+    // Load Leaflet + MarkerCluster from CDN for GPS map
+    React.useEffect(function() {
+        if (window.L && window.L.markerClusterGroup) { setLeafletReady(true); return; }
+        ['https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+         'https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css',
+         'https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css'
+        ].forEach(function(href) {
+            var link = document.createElement('link');
+            link.rel = 'stylesheet'; link.href = href;
+            document.head.appendChild(link);
+        });
+        var s1 = document.createElement('script');
+        s1.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        s1.onload = function() {
+            var s2 = document.createElement('script');
+            s2.src = 'https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js';
+            s2.onload = function() { setLeafletReady(true); };
+            document.head.appendChild(s2);
+        };
+        document.head.appendChild(s1);
+    }, []);
+
+    // GPS Map initialization and marker update
+    React.useEffect(function() {
+        if (!leafletReady || !expandedGps || !gpsDetail) {
+            if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; }
+            return;
+        }
+        var mapDiv = document.getElementById('gps-map-' + expandedGps);
+        if (!mapDiv) return;
+
+        // Create map if not exists
+        if (!mapInstanceRef.current) {
+            mapInstanceRef.current = L.map(mapDiv, { scrollWheelZoom: true });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '\u00a9 OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(mapInstanceRef.current);
+        }
+        var map = mapInstanceRef.current;
+
+        // Remove old markers
+        if (markersRef.current) { map.removeLayer(markersRef.current); }
+
+        var allVisits = (gpsDetail.visits || []).filter(function(v) { return v.gps; });
+        var visitsToShow = selectedMother
+            ? allVisits.filter(function(v) { return v.mother_case_id === selectedMother; })
+            : allVisits;
+
+        if (visitsToShow.length === 0) {
+            markersRef.current = null;
+            map.setView([0, 0], 2);
+            return;
+        }
+
+        var cluster = L.markerClusterGroup({ maxClusterRadius: 40, disableClusteringAtZoom: 16 });
+        var hasMarkers = false;
+
+        // Mothers layer (orange markers)
+        if (showMapMothers) {
+            var motherMap = {};
+            visitsToShow.forEach(function(v) {
+                var mid = v.mother_case_id || v.case_id;
+                if (!mid) return;
+                if (!motherMap[mid] || (v.visit_date || '') > (motherMap[mid].latest || '')) {
+                    motherMap[mid] = motherMap[mid] || { visits: [] };
+                    motherMap[mid].lat = v.gps.latitude;
+                    motherMap[mid].lng = v.gps.longitude;
+                    motherMap[mid].name = v.entity_name || mid;
+                    motherMap[mid].latest = v.visit_date;
+                }
+                motherMap[mid].visits.push(v);
+            });
+            Object.keys(motherMap).forEach(function(mid) {
+                var m = motherMap[mid];
+                var marker = L.circleMarker([m.lat, m.lng], {
+                    radius: 9, fillColor: '#f97316', color: '#ea580c', weight: 1.5, fillOpacity: 0.7
+                });
+                marker.bindPopup(
+                    '<strong>' + m.name + '</strong><br/>' +
+                    'Visits: ' + m.visits.length + '<br/>' +
+                    'Last: ' + (m.latest || '-')
+                );
+                marker.on('click', function() { setSelectedMother(mid); });
+                cluster.addLayer(marker);
+                hasMarkers = true;
+            });
+        }
+
+        // Visits layer (blue/red markers)
+        if (showMapVisits) {
+            visitsToShow.forEach(function(v) {
+                var color = v.is_flagged ? '#dc2626' : '#3b82f6';
+                var borderColor = v.is_flagged ? '#991b1b' : '#1d4ed8';
+                var radius = v.is_flagged ? 7 : 6;
+                var marker = L.circleMarker([v.gps.latitude, v.gps.longitude], {
+                    radius: radius, fillColor: color, color: borderColor, weight: 1.5, fillOpacity: 0.7
+                });
+                marker.bindPopup(
+                    '<strong>' + (v.entity_name || '-') + '</strong><br/>' +
+                    'Date: ' + (v.visit_date || '-') + '<br/>' +
+                    'Form: ' + (v.form_name || '-') +
+                    (v.distance_from_prev_km != null ? '<br/>Dist: ' + v.distance_from_prev_km + ' km' : '') +
+                    (v.is_flagged ? '<br/><span style="color:#dc2626;font-weight:bold">Flagged</span>' : '')
+                );
+                marker.on('click', function() { setSelectedMother(v.mother_case_id || v.case_id); });
+                cluster.addLayer(marker);
+                hasMarkers = true;
+            });
+        }
+
+        map.addLayer(cluster);
+        markersRef.current = cluster;
+        if (hasMarkers) {
+            map.fitBounds(cluster.getBounds(), { padding: [30, 30] });
+        }
+
+        return function() {
+            if (markersRef.current && map) { map.removeLayer(markersRef.current); markersRef.current = null; }
+        };
+    }, [leafletReady, expandedGps, gpsDetail, showMapVisits, showMapMothers, selectedMother]);
+
     // =========================================================================
     // Helpers
     // =========================================================================
@@ -561,25 +691,13 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
             });
     };
 
-    // GPS detail fetch
+    // GPS detail - use visits already embedded in gpsFlws from the SSE response
     var fetchGpsDetail = function(username) {
         if (expandedGps === username) { setExpandedGps(null); return; }
         setExpandedGps(username);
-        setGpsDetailLoading(true);
-        var end = new Date();
-        var start = new Date();
-        start.setDate(end.getDate() - 30);
-        var params = new URLSearchParams({
-            start_date: start.toISOString().split('T')[0],
-            end_date: end.toISOString().split('T')[0]
-        });
-        fetch('/custom_analysis/mbw_monitoring/api/gps/' + username + '/?' + params.toString())
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.success) setGpsDetail(data);
-                setGpsDetailLoading(false);
-            })
-            .catch(function() { setGpsDetailLoading(false); });
+        setSelectedMother(null);
+        var flw = gpsFlws.find(function(f) { return f.username === username; });
+        setGpsDetail({ success: true, visits: (flw && flw.visits) || [] });
     };
 
     // Toast helper
@@ -2469,7 +2587,115 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                                                     </div>
                                                 </td>
                                             </tr>,
-                                            /* GPS Drill-Down Panel - rendered as a separate panel below the table */
+                                            isExpanded && gpsDetail && (function() {
+                                                var displayVisits = selectedMother
+                                                    ? (gpsDetail.visits || []).filter(function(v) { return v.mother_case_id === selectedMother || v.case_id === selectedMother; })
+                                                    : (gpsDetail.visits || []);
+                                                return (
+                                                <tr key={g.username + '_detail'}>
+                                                    <td colSpan={9} className="p-0 border-b-2 border-blue-200">
+                                                        <div className="bg-blue-50 px-6 py-3 border-t border-blue-200">
+                                                            <div className="flex justify-between items-center mb-2">
+                                                                <h4 className="text-sm font-semibold text-gray-900">
+                                                                    <i className="fa-solid fa-location-dot text-blue-600 mr-1"></i>
+                                                                    Visit Details ({displayVisits.length} visits{selectedMother ? ' — filtered' : ''})
+                                                                </h4>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button onClick={function() { setExpandedGps(null); }} className="text-gray-500 hover:text-gray-700 text-xs">
+                                                                        <i className="fa-solid fa-times mr-1"></i> Close
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* GPS Map */}
+                                                            {leafletReady && (
+                                                                <div className="mb-3">
+                                                                    <div className="flex items-center gap-3 mb-2">
+                                                                        <span className="text-xs font-semibold text-gray-700">
+                                                                            <i className="fa-solid fa-map text-blue-600 mr-1"></i> Map
+                                                                        </span>
+                                                                        <div className="inline-flex items-center gap-1">
+                                                                            <button onClick={function() { setShowMapVisits(function(p) { return !p; }); }}
+                                                                                    className={'px-3 py-1 text-xs font-medium border rounded ' +
+                                                                                        (showMapVisits ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-400 border-gray-300 hover:bg-gray-50')}>
+                                                                                <i className={'fa-solid fa-circle mr-1'} style={{color: showMapVisits ? '#93c5fd' : '#d1d5db', fontSize: '8px'}}></i>
+                                                                                Visits
+                                                                            </button>
+                                                                            <button onClick={function() { setShowMapMothers(function(p) { return !p; }); }}
+                                                                                    className="px-3 py-1 text-xs font-medium border rounded"
+                                                                                    style={showMapMothers ? {backgroundColor: '#f97316', color: '#fff', borderColor: '#f97316'} : {backgroundColor: '#fff', color: '#9ca3af', borderColor: '#d1d5db'}}>
+                                                                                <i className={'fa-solid fa-circle mr-1'} style={{color: showMapMothers ? '#fdba74' : '#d1d5db', fontSize: '8px'}}></i>
+                                                                                Mothers
+                                                                            </button>
+                                                                        </div>
+                                                                        {selectedMother && (
+                                                                            <div className="inline-flex items-center px-2 py-1 rounded text-xs" style={{backgroundColor: '#dbeafe', color: '#1e40af'}}>
+                                                                                <i className="fa-solid fa-filter mr-1"></i>
+                                                                                {(gpsDetail.visits.find(function(v) { return v.mother_case_id === selectedMother; }) || {}).entity_name || 'Selected mother'}
+                                                                                <button onClick={function() { setSelectedMother(null); }} className="ml-1 hover:opacity-70" style={{color: '#2563eb'}}>
+                                                                                    <i className="fa-solid fa-times"></i>
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    <div id={'gps-map-' + g.username} style={{height: '350px', width: '100%', borderRadius: '0.375rem', border: '1px solid #e5e7eb'}}></div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Visits Table */}
+                                                            {displayVisits.length > 0 ? (
+                                                                <div className="overflow-x-auto bg-white rounded border border-gray-200" style={{maxHeight: '400px', overflowY: 'auto'}}>
+                                                                    <table className="min-w-full divide-y divide-gray-200">
+                                                                        <thead className="bg-gray-50 sticky top-0">
+                                                                            <tr>
+                                                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                                                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Form</th>
+                                                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Entity</th>
+                                                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">GPS</th>
+                                                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Dist from Prev</th>
+                                                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody className="bg-white divide-y divide-gray-200">
+                                                                            {displayVisits.map(function(v, vi) {
+                                                                                return (
+                                                                                    <tr key={vi} className={v.is_flagged ? 'bg-red-50' : 'hover:bg-gray-50'}>
+                                                                                        <td className="px-4 py-2 text-sm text-gray-900">{v.visit_date || '-'}</td>
+                                                                                        <td className="px-4 py-2 text-sm text-gray-900">{v.form_name || '-'}</td>
+                                                                                        <td className="px-4 py-2 text-sm text-gray-900">{v.entity_name || '-'}</td>
+                                                                                        <td className="px-4 py-2 text-sm text-gray-500">
+                                                                                            {v.gps ? (
+                                                                                                <span>{v.gps.latitude.toFixed(4)}, {v.gps.longitude.toFixed(4)}</span>
+                                                                                            ) : <span className="text-gray-400">No GPS</span>}
+                                                                                        </td>
+                                                                                        <td className="px-4 py-2 text-sm">
+                                                                                            {v.distance_from_prev_km != null ? (
+                                                                                                <span className={v.distance_from_prev_km > 5 ? 'text-red-600 font-bold' : 'text-gray-900'}>
+                                                                                                    {v.distance_from_prev_km} km
+                                                                                                </span>
+                                                                                            ) : <span className="text-gray-400">-</span>}
+                                                                                        </td>
+                                                                                        <td className="px-4 py-2 text-sm">
+                                                                                            {v.is_flagged ? (
+                                                                                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                                                                                    <i className="fa-solid fa-flag mr-1"></i> Flagged
+                                                                                                </span>
+                                                                                            ) : <span className="text-green-600"><i className="fa-solid fa-check"></i></span>}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                );
+                                                                            })}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-center text-sm text-gray-500 py-3">No visits found for this FLW.</div>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                );
+                                            })()
                                         );
                                     })}
                                     {sortedGps.length === 0 && (
@@ -2480,71 +2706,6 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                         </div>
                     </div>
 
-                    {/* GPS Drill-Down Panel (below table) */}
-                    {expandedGps && (
-                        <div className="mt-4 bg-white border border-gray-200 rounded-lg shadow-sm" style={{overflow: 'clip'}}>
-                            <div className="px-6 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                                <h3 className="text-lg font-semibold text-gray-900">
-                                    Visit Details for {(gpsFlws.find(function(f) { return f.username === expandedGps; }) || {}).display_name || expandedGps}
-                                </h3>
-                                <button onClick={function() { setExpandedGps(null); }} className="text-gray-500 hover:text-gray-700">
-                                    <i className="fa-solid fa-times"></i>
-                                </button>
-                            </div>
-                            {gpsDetailLoading ? (
-                                <div className="p-6 text-center">
-                                    <i className="fa-solid fa-spinner fa-spin text-blue-600 mr-2"></i> Loading visit details...
-                                </div>
-                            ) : gpsDetail ? (
-                                <div className="overflow-x-auto">
-                                    <table data-sticky-header className="min-w-full divide-y divide-gray-200">
-                                        <thead className="bg-gray-50">
-                                            <tr>
-                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Form</th>
-                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Entity</th>
-                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">GPS</th>
-                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Dist from Prev</th>
-                                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="bg-white divide-y divide-gray-200">
-                                            {(gpsDetail.visits || []).map(function(v, vi) {
-                                                return (
-                                                    <tr key={vi} className={v.is_flagged ? 'bg-red-50' : 'hover:bg-gray-50'}>
-                                                        <td className="px-4 py-2 text-sm text-gray-900">{v.visit_date || '-'}</td>
-                                                        <td className="px-4 py-2 text-sm text-gray-900">{v.form_name || '-'}</td>
-                                                        <td className="px-4 py-2 text-sm text-gray-900">{v.entity_name || '-'}</td>
-                                                        <td className="px-4 py-2 text-sm text-gray-500">
-                                                            {v.gps ? (
-                                                                <span>{v.gps.latitude.toFixed(4)}, {v.gps.longitude.toFixed(4)}</span>
-                                                            ) : <span className="text-gray-400">No GPS</span>}
-                                                        </td>
-                                                        <td className="px-4 py-2 text-sm">
-                                                            {v.distance_from_prev_km != null ? (
-                                                                <span className={v.distance_from_prev_km > 5 ? 'text-red-600 font-bold' : 'text-gray-900'}>
-                                                                    {v.distance_from_prev_km} km
-                                                                </span>
-                                                            ) : <span className="text-gray-400">-</span>}
-                                                        </td>
-                                                        <td className="px-4 py-2 text-sm">
-                                                            {v.is_flagged ? (
-                                                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                                                                    <i className="fa-solid fa-flag mr-1"></i> Flagged
-                                                                </span>
-                                                            ) : <span className="text-green-600"><i className="fa-solid fa-check"></i></span>}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : (
-                                <div className="p-6 text-center text-gray-500">No visits found for this FLW in the selected date range.</div>
-                            )}
-                        </div>
-                    )}
                 </div>
             )}
 
