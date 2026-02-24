@@ -54,6 +54,20 @@ The worker's display name (and username underneath if different). Always visible
 
 ---
 
+#### Last Active
+**What it shows:** Number of days since the FLW was last active on the Connect platform.
+
+**How it's calculated:** Uses the `last_active` field from Connect user data — the date of the FLW's most recent form submission or module completion. Displayed as "Xd ago" (e.g., "3d ago" means the FLW was last active 3 days ago).
+
+**Data source:** Connect user export API (`/export/opportunity/{id}/user_data/`), field: `last_active` (DateTimeField on `OpportunityAccess` model, updated by `form_receiver/processor.py` on each form submission).
+
+**Color coding:**
+- Green: ≤ 7 days (active within the past week)
+- Yellow: 8-15 days (inactive for 1-2 weeks)
+- Red: > 15 days (inactive for more than 2 weeks)
+
+---
+
 #### GS Score
 **What it shows:** The FLW's Gold Standard Visit Checklist score, as a percentage.
 
@@ -663,6 +677,13 @@ When creating a task for an FLW (via the OCS AI integration), the system automat
 | Green | ≥ 70% |
 | Yellow | 50-69% |
 | Red | < 50% |
+
+### Last Active Colors
+| Color | Range |
+|-------|-------|
+| Green | ≤ 7 days ago |
+| Yellow | 8-15 days ago |
+| Red | > 15 days ago |
 
 ### GPS Flags
 | Indicator | Threshold |

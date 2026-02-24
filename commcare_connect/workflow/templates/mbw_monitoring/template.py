@@ -126,6 +126,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
     // Column selector for Overview table
     var OVERVIEW_COLUMNS = [
         { id: 'flw_name', label: 'FLW Name', locked: true },
+        { id: 'last_active', label: 'Last Active' },
         { id: 'mothers', label: '# Mothers' },
         { id: 'gs_score', label: 'GS Score' },
         { id: 'post_test', label: 'Post-Test' },
@@ -1832,6 +1833,9 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                                         {isColVisible('flw_name') && <Th onClick={function() { toggleSort(setOverviewSort, overviewSort, 'display_name'); }}
                                             sortIndicator={sortIcon(overviewSort, 'display_name')}
                                             tooltip="Frontline worker name and ID">FLW Name</Th>}
+                                        {isColVisible('last_active') && <Th onClick={function() { toggleSort(setOverviewSort, overviewSort, 'last_active_days'); }}
+                                            sortIndicator={sortIcon(overviewSort, 'last_active_days')}
+                                            tooltip="Days since FLW was last active on Connect">Last Active</Th>}
                                         {isColVisible('mothers') && <Th onClick={function() { toggleSort(setOverviewSort, overviewSort, 'cases_registered'); }}
                                             sortIndicator={sortIcon(overviewSort, 'cases_registered')}
                                             tooltip="Unique mothers from CCHQ registration forms. Eligible count in parentheses."># Mothers</Th>}
@@ -1897,6 +1901,20 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                                                             )}
                                                         </div>
                                                     </div>
+                                                </td>
+                                                )}
+                                                {/* Last Active */}
+                                                {isColVisible('last_active') && (
+                                                <td className="px-4 py-3 text-sm" title={f.last_active_date || ''}>
+                                                    {f.last_active_days != null ? (
+                                                        <span className={
+                                                            f.last_active_days <= 7 ? 'text-green-600 font-medium' :
+                                                            f.last_active_days <= 15 ? 'text-yellow-600' :
+                                                            'text-red-600'
+                                                        }>
+                                                            {f.last_active_days + 'd ago'}
+                                                        </span>
+                                                    ) : <span className="text-gray-400">{'\u2014'}</span>}
                                                 </td>
                                                 )}
                                                 {/* # Mothers */}
@@ -3121,7 +3139,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                         </p>
                         <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                             <div className="bg-blue-50 rounded px-3 py-2 text-blue-700 font-medium">
-                                <i className="fa-solid fa-chart-line mr-1"></i> Overview &mdash; 14 columns
+                                <i className="fa-solid fa-chart-line mr-1"></i> Overview &mdash; 15 columns
                             </div>
                             <div className="bg-green-50 rounded px-3 py-2 text-green-700 font-medium">
                                 <i className="fa-solid fa-location-dot mr-1"></i> GPS Analysis &mdash; 7 columns
@@ -3154,6 +3172,22 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                                         <div><strong>Data paths:</strong></div>
                                         <div>Mother count: unique <code>form.var_visit_1..6.mother_case_id</code> per FLW</div>
                                         <div>Eligible: <code>form.eligible_full_intervention_bonus</code> = &quot;1&quot;</div>
+                                    </div>
+                                </div>
+
+                                {/* Last Active */}
+                                <div className="border-l-4 border-blue-200 pl-4 py-2">
+                                    <h4 className="font-semibold text-gray-800">Last Active</h4>
+                                    <p className="mt-1"><strong>What it shows:</strong> Number of days since the FLW was last active on the Connect platform.</p>
+                                    <p className="mt-1"><strong>How it&apos;s calculated:</strong> Uses the <code className="bg-gray-100 px-1 rounded text-xs">last_active</code> field from Connect user data &mdash; the date of the FLW&apos;s most recent form submission or module completion. Displayed as &quot;Xd ago&quot;.</p>
+                                    <div className="mt-2 bg-gray-50 rounded px-3 py-2 font-mono text-xs leading-relaxed">
+                                        <div><strong>Data source:</strong></div>
+                                        <div>Connect user export: <code>last_active</code> (DateTimeField on OpportunityAccess)</div>
+                                    </div>
+                                    <div className="mt-2 flex gap-2 text-xs">
+                                        <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded">&le;7 days Green</span>
+                                        <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">8&ndash;15 days Yellow</span>
+                                        <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded">&gt;15 days Red</span>
                                     </div>
                                 </div>
 

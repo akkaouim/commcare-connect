@@ -9,7 +9,7 @@ import json
 import logging
 from collections import Counter
 from collections.abc import Generator
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 
 import sentry_sdk
 from django.conf import settings
@@ -412,9 +412,12 @@ class MBWMonitoringStreamView(AnalysisPipelineSSEMixin, BaseSSEStreamView):
             yield send_sse_event("Loading FLW data...")
             active_usernames = set()
             flw_names = {}
+            flw_last_active = {}
             for opp_id in opportunity_ids:
                 try:
-                    opp_flw_names = fetch_flw_names(access_token, opp_id)
+                    opp_flw_names = fetch_flw_names(
+                        access_token, opp_id, last_active_out=flw_last_active
+                    )
                     flw_names.update(opp_flw_names)
                     active_usernames.update(opp_flw_names.keys())
                 except Exception as e:
@@ -428,6 +431,7 @@ class MBWMonitoringStreamView(AnalysisPipelineSSEMixin, BaseSSEStreamView):
             # CCHQ lowercases usernames while Connect may preserve original casing.
             active_usernames = {u.lower() for u in active_usernames}
             flw_names = {k.lower(): v for k, v in flw_names.items()}
+            flw_last_active = {k.lower(): v for k, v in flw_last_active.items()}
 
             # Scope to monitoring session FLWs if applicable
             if session_flw_filter:
@@ -744,11 +748,24 @@ class MBWMonitoringStreamView(AnalysisPipelineSSEMixin, BaseSSEStreamView):
                 }
 
             overview_flws = []
+            now_utc = datetime.now(dt_timezone.utc)
             for username in sorted(active_usernames):
                 display_name = flw_names.get(username, username)
+                la_str = flw_last_active.get(username)
+                last_active_days = None
+                last_active_date = None
+                if la_str:
+                    try:
+                        la_dt = datetime.fromisoformat(la_str.replace("Z", "+00:00"))
+                        last_active_days = max(0, (now_utc - la_dt).days)
+                        last_active_date = la_dt.strftime("%Y-%m-%d %H:%M")
+                    except (ValueError, TypeError):
+                        pass
                 overview_flws.append({
                     "username": username,
                     "display_name": display_name,
+                    "last_active_days": last_active_days,
+                    "last_active_date": last_active_date,
                     "cases_registered": mother_counts.get(username, 0),
                     "eligible_mothers": eligible_mothers_by_flw.get(username, 0),
                     "first_gs_score": first_gs_by_flw.get(username),
