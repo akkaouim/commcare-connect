@@ -1110,6 +1110,29 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                 setShowOcsModal(false);
                 setCreatedTaskUsernames(function(prev) { return prev.concat([f.username]); });
                 showToast('Task created' + (result.ocs && result.ocs.success ? ' and AI session initiated' : '') + ' for ' + (f.display_name || f.username));
+                // Poll to link OCS session_id right after creation
+                if (result.task_id && result.ocs && result.ocs.success) {
+                    var pollTaskId = result.task_id;
+                    var pollAttempt = 0;
+                    var maxAttempts = 5;
+                    var pollInterval = 2000;
+                    var doPoll = function() {
+                        pollAttempt++;
+                        actions.getAISessions(pollTaskId).then(function(sessResult) {
+                            if (sessResult && sessResult.sessions) {
+                                var latest = sessResult.sessions[sessResult.sessions.length - 1];
+                                if (latest && latest.session_id) {
+                                    console.log('OCS session linked:', latest.session_id);
+                                    return;
+                                }
+                            }
+                            if (pollAttempt < maxAttempts) {
+                                setTimeout(doPoll, pollInterval);
+                            }
+                        });
+                    };
+                    setTimeout(doPoll, pollInterval);
+                }
             } else {
                 setOcsError(result.error || 'Failed to create task');
             }
@@ -1147,7 +1170,10 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                 setTaskDetail(result.task);
                 setTaskStatus(result.task.status || 'investigating');
                 setTaskOriginalStatus(result.task.status || 'investigating');
-                return actions.getAITranscript(taskInfo.task_id);
+                return actions.getAISessions(taskInfo.task_id).then(function() {
+                    if (requestId !== taskRequestIdRef.current) return;
+                    return actions.getAITranscript(taskInfo.task_id);
+                });
             } else {
                 setTaskLoading(false);
                 showToast('Failed to load task: ' + (result.error || 'Unknown error'));
