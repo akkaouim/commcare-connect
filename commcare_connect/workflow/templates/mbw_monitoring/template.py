@@ -3626,7 +3626,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                                         var total5Num = 0; var total5Den = 0;
                                         var total6Num = 0; var total6Den = 0;
                                         perf.forEach(function(r) {
-                                            totalMissedNum += r.pct_missed_1_or_less_visits * r.total_cases_eligible_at_registration / 100;
+                                            totalMissedNum += (Number(r.pct_missed_1_or_less_visits) || 0) * (Number(r.total_cases_eligible_at_registration) || 0) / 100;
                                         });
                                         var pctMissed = totals.total_cases_eligible_at_registration > 0 ? Math.round(totalMissedNum / totals.total_cases_eligible_at_registration * 100) : 0;
                                         return (
