@@ -1075,10 +1075,19 @@ class MBWGPSDetailView(LoginRequiredMixin, View):
         cache_mgr = SQLCacheManager(opportunity_id, MBW_GPS_PIPELINE_CONFIG)
         username_lower = username.lower()
 
-        # Check if computed cache exists for this config
+        # Primary lookup: v1 cache (MBW_GPS_PIPELINE_CONFIG hash)
         base_qs = cache_mgr.get_computed_visits_queryset()
         if not base_qs.exists():
-            return None
+            # Fallback: v2 pipeline populates ComputedVisitCache with a different config hash
+            # (same field paths, different Python object hash). Query any non-expired cache
+            # for this opportunity so GPS drill-down works in v2 without a full pipeline run.
+            from django.utils import timezone as _tz
+            base_qs = ComputedVisitCache.objects.filter(
+                opportunity_id=opportunity_id,
+                expires_at__gt=_tz.now(),
+            )
+            if not base_qs.exists():
+                return None
 
         # Query just this FLW's visits (fast: indexed by username)
         qs = base_qs.filter(username=username_lower)

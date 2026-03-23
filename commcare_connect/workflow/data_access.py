@@ -1648,6 +1648,8 @@ class PipelineDataAccess(BaseDataAccess):
                         return str(d) if d else None
 
                     row_dict = {
+                        "entity_id": getattr(row, "entity_id", None),
+                        "entity_name": getattr(row, "entity_name", None),
                         "username": getattr(row, "username", None),
                         "visit_date": format_date(getattr(row, "visit_date", None)),
                         # Built-in FLW aggregation fields

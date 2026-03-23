@@ -282,6 +282,54 @@ def run_workflow_job(
         logger.info(f"[WorkflowJob] Using {len(records)} records from UI (skipping pipeline stage)")
 
     # =========================================================================
+    # STAGE 1.5: Multi-pipeline hydration from pipeline IDs
+    # Celery re-reads pipeline data from server-side cache using pipeline IDs.
+    # Only activates when frontend sends pipeline_ids instead of pipeline_data.
+    # =========================================================================
+    pipeline_ids = job_config.get("pipeline_ids")
+    logger.info(
+        f"[WorkflowJob] Stage 1.5 check: pipeline_ids={bool(pipeline_ids)}, "
+        f"has_pipeline_data={'pipeline_data' in job_config}, "
+        f"pipeline_ids_value={pipeline_ids}"
+    )
+    if pipeline_ids and "pipeline_data" not in job_config:
+        logger.info(f"[WorkflowJob] Hydrating pipeline_data from IDs: {pipeline_ids}")
+        try:
+            from commcare_connect.workflow.data_access import PipelineDataAccess
+
+            mock_request = _create_mock_request(access_token, opportunity_id)
+            pipeline_access = PipelineDataAccess(
+                request=mock_request,
+                access_token=access_token,
+                opportunity_id=opportunity_id,
+            )
+            pipeline_data = {}
+            for alias, pid in pipeline_ids.items():
+                if pid:
+                    result = pipeline_access.execute_pipeline(int(pid), opportunity_id)
+                    pipeline_data[alias] = result
+                    logger.info(
+                        f"[WorkflowJob] Pipeline '{alias}' (id={pid}): "
+                        f"{len(result.get('rows', []))} rows, "
+                        f"from_cache={result.get('metadata', {}).get('from_cache')}"
+                    )
+            pipeline_access.close()
+            job_config["pipeline_data"] = pipeline_data
+        except Exception as e:
+            logger.error(f"[WorkflowJob] Failed to hydrate pipeline_data: {e}", exc_info=True)
+            _update_job_state(
+                run_id,
+                access_token,
+                opportunity_id,
+                {
+                    "status": "failed",
+                    "error": f"Pipeline hydration error: {e}",
+                    "failed_at": datetime.now().isoformat(),
+                },
+            )
+            raise
+
+    # =========================================================================
     # STAGE 2: Processing (API calls, validation, etc.)
     # Note: If records came from UI, this is actually Stage 1 (single stage job)
     # =========================================================================

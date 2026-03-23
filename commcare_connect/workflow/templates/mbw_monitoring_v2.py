@@ -114,6 +114,37 @@ PIPELINE_SCHEMAS = [
                 {"name": "expected_visits", "path": "form.expected_visits", "aggregation": "first"},
                 {"name": "mother_name", "path": "form.mother_name", "aggregation": "first"},
                 {"name": "user_connect_id", "path": "form.user_connect_id", "aggregation": "first"},
+                # var_visit_1..6: schedule blocks for follow-up analysis
+                {"name": "var_visit_1_visit_type", "path": "form.var_visit_1.visit_type", "aggregation": "first"},
+                {"name": "var_visit_1_mother_case_id", "path": "form.var_visit_1.mother_case_id", "aggregation": "first"},
+                {"name": "var_visit_1_visit_date_scheduled", "path": "form.var_visit_1.visit_date_scheduled", "aggregation": "first"},
+                {"name": "var_visit_1_visit_expiry_date", "path": "form.var_visit_1.visit_expiry_date", "aggregation": "first"},
+                {"name": "var_visit_2_visit_type", "path": "form.var_visit_2.visit_type", "aggregation": "first"},
+                {"name": "var_visit_2_mother_case_id", "path": "form.var_visit_2.mother_case_id", "aggregation": "first"},
+                {"name": "var_visit_2_visit_date_scheduled", "path": "form.var_visit_2.visit_date_scheduled", "aggregation": "first"},
+                {"name": "var_visit_2_visit_expiry_date", "path": "form.var_visit_2.visit_expiry_date", "aggregation": "first"},
+                {"name": "var_visit_3_visit_type", "path": "form.var_visit_3.visit_type", "aggregation": "first"},
+                {"name": "var_visit_3_mother_case_id", "path": "form.var_visit_3.mother_case_id", "aggregation": "first"},
+                {"name": "var_visit_3_visit_date_scheduled", "path": "form.var_visit_3.visit_date_scheduled", "aggregation": "first"},
+                {"name": "var_visit_3_visit_expiry_date", "path": "form.var_visit_3.visit_expiry_date", "aggregation": "first"},
+                {"name": "var_visit_4_visit_type", "path": "form.var_visit_4.visit_type", "aggregation": "first"},
+                {"name": "var_visit_4_mother_case_id", "path": "form.var_visit_4.mother_case_id", "aggregation": "first"},
+                {"name": "var_visit_4_visit_date_scheduled", "path": "form.var_visit_4.visit_date_scheduled", "aggregation": "first"},
+                {"name": "var_visit_4_visit_expiry_date", "path": "form.var_visit_4.visit_expiry_date", "aggregation": "first"},
+                {"name": "var_visit_5_visit_type", "path": "form.var_visit_5.visit_type", "aggregation": "first"},
+                {"name": "var_visit_5_mother_case_id", "path": "form.var_visit_5.mother_case_id", "aggregation": "first"},
+                {"name": "var_visit_5_visit_date_scheduled", "path": "form.var_visit_5.visit_date_scheduled", "aggregation": "first"},
+                {"name": "var_visit_5_visit_expiry_date", "path": "form.var_visit_5.visit_expiry_date", "aggregation": "first"},
+                {"name": "var_visit_6_visit_type", "path": "form.var_visit_6.visit_type", "aggregation": "first"},
+                {"name": "var_visit_6_mother_case_id", "path": "form.var_visit_6.mother_case_id", "aggregation": "first"},
+                {"name": "var_visit_6_visit_date_scheduled", "path": "form.var_visit_6.visit_date_scheduled", "aggregation": "first"},
+                {"name": "var_visit_6_visit_expiry_date", "path": "form.var_visit_6.visit_expiry_date", "aggregation": "first"},
+                # Submitter username and mother demographics for metadata extraction
+                {"name": "metadata_username", "path": "metadata.username", "aggregation": "first"},
+                {"name": "mother_dob", "path": "form.mother_details.mother_dob", "aggregation": "first"},
+                {"name": "mother_phone", "path": "form.mother_details.phone_number", "aggregation": "first"},
+                # Eligibility flag for follow-up rate calculation (_is_eligible check)
+                {"name": "eligible_full_intervention_bonus", "path": "form.eligible_full_intervention_bonus", "aggregation": "first"},
             ],
         },
     },
@@ -131,7 +162,10 @@ PIPELINE_SCHEMAS = [
             "grouping_key": "case_id",
             "terminal_stage": "visit_level",
             "fields": [
-                {"name": "gs_score", "path": "form.gs_score", "aggregation": "first"},
+                # form.checklist_percentage = GS score (0-100); form.load_flw_connect_id = assessed FLW
+                # (matches v1 views.py:739-740 and DOCUMENTATION.md field table)
+                {"name": "gs_score", "path": "form.checklist_percentage", "aggregation": "first"},
+                {"name": "load_flw_connect_id", "path": "form.load_flw_connect_id", "aggregation": "first"},
                 {"name": "assessor_name", "path": "form.assessor_name", "aggregation": "first"},
                 {"name": "assessment_date", "path": "form.meta.timeEnd", "aggregation": "first"},
             ],
@@ -144,15 +178,6 @@ PIPELINE_SCHEMAS = [
 # ---------------------------------------------------------------------------
 
 
-def _replace_between(code: str, start_marker: str, end_marker: str, replacement: str) -> str:
-    """Replace text between two markers (inclusive of start, exclusive of end)."""
-    start = code.find(start_marker)
-    end = code.find(end_marker, start + len(start_marker)) if start >= 0 else -1
-    if start < 0 or end < 0:
-        raise ValueError(f"Could not find markers: start={start_marker[:60]!r} end={end_marker[:60]!r}")
-    return code[:start] + replacement + code[end:]
-
-
 def _replace_between_inclusive(code: str, start_marker: str, end_marker: str, replacement: str) -> str:
     """Replace text between two markers (inclusive of both)."""
     start = code.find(start_marker)
@@ -163,171 +188,50 @@ def _replace_between_inclusive(code: str, start_marker: str, end_marker: str, re
 
 
 def _build_v2_render_code() -> str:
-    """Build the V2 render code by replacing SSE data loading with pipeline + job handler."""
+    """Build the V2 render code by replacing SSE data loading with pipeline + job handler.
+
+    All replacements use _replace_between_inclusive with @v2-replace markers
+    placed in V1's template.py. This makes V2 resilient to V1 code changes
+    within marked sections.
+    """
     code = V1_RENDER_CODE
 
     # =====================================================================
-    # 1. Replace SSE state variables with pipeline/job state variables
+    # R1. Replace SSE state variables with pipeline/job state variables
+    # Marker: // @v2-replace:sse-state:start/end in template.py
     # =====================================================================
-    _SSE_STATE = """    var [dashData, setDashData] = React.useState(null);
-    var [sseMessages, setSseMessages] = React.useState([]);
-    var [sseError, setSseError] = React.useState(null);
-    var [sseAuthorizeUrl, setSseAuthorizeUrl] = React.useState(null);
-    var [sseComplete, setSseComplete] = React.useState(false);
-    var [fromSnapshot, setFromSnapshot] = React.useState(false);
-    var [snapshotTimestamp, setSnapshotTimestamp] = React.useState(null);
-    var [refreshTrigger, setRefreshTrigger] = React.useState(0);
-    var [oauthStatus, setOauthStatus] = React.useState(null);"""
-
-    _PIPELINE_STATE = """    var [dashData, setDashData] = React.useState(null);
-    var [jobMessages, setJobMessages] = React.useState([]);
-    var [jobError, setJobError] = React.useState(null);
-    var [jobRunning, setJobRunning] = React.useState(false);
-    var [analysisComplete, setAnalysisComplete] = React.useState(false);
-    var [oauthStatus, setOauthStatus] = React.useState(null);
-    var jobCleanupRef = React.useRef(null);"""
-
-    code = code.replace(_SSE_STATE, _PIPELINE_STATE)
+    code = _replace_between_inclusive(
+        code,
+        "// @v2-replace:sse-state:start",
+        "// @v2-replace:sse-state:end",
+        "// @v2-replace:sse-state:start\n"
+        "    var [dashData, setDashData] = React.useState(null);\n"
+        "    var [jobMessages, setJobMessages] = React.useState([]);\n"
+        "    var [jobError, setJobError] = React.useState(null);\n"
+        "    var [jobRunning, setJobRunning] = React.useState(false);\n"
+        "    var [analysisComplete, setAnalysisComplete] = React.useState(false);\n"
+        "    var [oauthStatus, setOauthStatus] = React.useState(null);\n"
+        "    var jobCleanupRef = React.useRef(null);\n"
+        "    // No-ops: saveSnapshot() references these; harmless in V2\n"
+        "    var setDataSource = function() {};\n"
+        "    var setSnapshotTimestamp = function() {};\n"
+        "    // @v2-replace:sse-state:end",
+    )
 
     # =====================================================================
-    # 2. Replace SSE loading useEffect with pipeline-aware job trigger
+    # R2. Replace SSE loading useEffect with pipeline-aware job trigger
+    # Marker: // @v2-replace:data-loading:start/end in template.py
     # =====================================================================
-    _SSE_LOADING = """    // =========================================================================
-    // SSE: Load dashboard data (with snapshot-first loading)
+    _PIPELINE_LOADING = """    // @v2-replace:data-loading:start
     // =========================================================================
-    var sseCleanupRef = React.useRef(null);
-
-    React.useEffect(function() {
-        if (step !== 'dashboard') return;
-        var flws = instance.state?.selected_workers || instance.state?.selected_flws || [];
-        if (flws.length === 0) return;
-
-        setSseComplete(false);
-        setSseError(null);
-        setSseAuthorizeUrl(null);
-        setSseMessages([]);
-        setFromSnapshot(false);
-        setSnapshotTimestamp(null);
-
-        function startSSEStream(bustCache) {
-            var end = new Date();
-            var start = new Date();
-            start.setDate(end.getDate() - 30);
-            var startStr = start.toISOString().split('T')[0];
-            var endStr = end.toISOString().split('T')[0];
-
-            var params = new URLSearchParams({
-                run_id: String(instance.id),
-                start_date: startStr,
-                end_date: endStr
-            });
-            if (bustCache) {
-                params.set('bust_cache', '1');
-            }
-            if (appliedAppVersionOp && appliedAppVersionVal) {
-                params.set('app_version_op', appliedAppVersionOp);
-                params.set('app_version_val', appliedAppVersionVal);
-            }
-            var url = '/custom_analysis/mbw_monitoring/stream/?' + params.toString();
-            var es = new EventSource(url);
-
-            es.onmessage = function(event) {
-                try {
-                    var parsed = JSON.parse(event.data);
-                    if (parsed.error) {
-                        setSseError(parsed.error);
-                        if (parsed.authorize_url) {
-                            setSseAuthorizeUrl(parsed.authorize_url);
-                        }
-                        es.close();
-                        return;
-                    }
-                    if (parsed.message === 'Complete!' && parsed.data) {
-                        setDashData(parsed.data);
-                        setSseComplete(true);
-                        setFromSnapshot(false);
-                        setSnapshotTimestamp(null);
-                        if (parsed.data.monitoring_session?.flw_results) {
-                            setWorkerResults(parsed.data.monitoring_session.flw_results);
-                        }
-                        es.close();
-                    } else if (parsed.message) {
-                        setSseMessages(function(prev) { return prev.concat([parsed.message]); });
-                    }
-                } catch (e) {
-                    console.error('SSE parse error:', e);
-                }
-            };
-
-            es.onerror = function() {
-                if (!sseComplete) {
-                    setSseError('Connection lost. Please refresh the page.');
-                }
-                es.close();
-            };
-
-            sseCleanupRef.current = function() { es.close(); };
-        }
-
-        // Check OAuth status before starting SSE stream
-        function checkOAuthAndStream(bustCache) {
-            setOauthStatus(null);
-            setSseMessages(['Checking authentication...']);
-            fetch('/custom_analysis/mbw_monitoring/api/oauth-status/?next=' + encodeURIComponent(window.location.pathname + window.location.search))
-            .then(function(r) { return r.json(); })
-            .then(function(status) {
-                var expired = [];
-                if (!status.connect?.active) expired.push('connect');
-                if (!status.commcare?.active) expired.push('commcare');
-                if (!status.ocs?.active) expired.push('ocs');
-                // Always store OAuth status (used by inline task OCS check)
-                setOauthStatus(status);
-                // Connect + CommCare are required; OCS is optional
-                if (!status.connect?.active || !status.commcare?.active) {
-                    setSseMessages([]);
-                    return;
-                }
-                startSSEStream(bustCache);
-            })
-            .catch(function() {
-                // Network error checking OAuth — proceed anyway, SSE will fail with its own error
-                startSSEStream(bustCache);
-            });
-        }
-
-        // refreshTrigger=0 means initial load → try snapshot first
-        // refreshTrigger>0 means user clicked Refresh Data → SSE with bust_cache
-        if (refreshTrigger === 0 && instance.id) {
-            fetch('/custom_analysis/mbw_monitoring/api/snapshot/?run_id=' + instance.id)
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.has_snapshot && data.success) {
-                    setDashData(data);
-                    setSseComplete(true);
-                    setFromSnapshot(true);
-                    setSnapshotTimestamp(data.snapshot_timestamp);
-                    if (data.monitoring_session?.flw_results) {
-                        setWorkerResults(data.monitoring_session.flw_results);
-                    }
-                    return;
-                }
-                checkOAuthAndStream(false);
-            })
-            .catch(function() { checkOAuthAndStream(false); });
-        } else {
-            checkOAuthAndStream(refreshTrigger > 0);
-        }
-
-        return function() {
-            if (sseCleanupRef.current) sseCleanupRef.current();
-        };
-    }, [step, instance.id, refreshTrigger]);"""
-
-    _PIPELINE_LOADING = """    // =========================================================================
-    // OAuth: Check auth status on dashboard load
+    // OAuth: Check auth status — only after pipelines are loaded.
+    // Delaying the check prevents a CCHQ token-expired redirect from killing
+    // an in-progress visits pipeline download (which can take several minutes).
+    // Once pipelines are cached, any re-auth redirect causes only a quick reload.
     // =========================================================================
     React.useEffect(function() {
         if (step !== 'dashboard') return;
+        if (!pipelinesReady) return;  // Wait for pipeline data before checking
         fetch('/custom_analysis/mbw_monitoring/api/oauth-status/?next=' + encodeURIComponent(window.location.pathname + window.location.search))
         .then(function(r) { return r.json(); })
         .then(function(status) {
@@ -336,7 +240,7 @@ def _build_v2_render_code() -> str:
         .catch(function() {
             // Network error — leave oauthStatus null so UI doesn't block
         });
-    }, [step]);
+    }, [step, pipelinesReady]);
 
     // =========================================================================
     // Pipeline + Job: Detect loaded pipeline data and run analysis via job handler
@@ -349,11 +253,19 @@ def _build_v2_render_code() -> str:
             return !pipelines[key] || (pipelines[key].rows !== undefined);
         });
 
+    // pipelinesPartial: at least one pipeline has SUCCESSFUL data (> 0 rows).
+    // A pipeline alias present with 0 rows + error means it failed — not "partial".
     var pipelinesPartial = pipelines && (
         (pipelines.visits && pipelines.visits.rows && pipelines.visits.rows.length > 0)
         || (pipelines.registrations && pipelines.registrations.rows && pipelines.registrations.rows.length > 0)
         || (pipelines.gs_forms && pipelines.gs_forms.rows && pipelines.gs_forms.rows.length > 0)
     );
+
+    // visitsFailed: visits key exists with 0 rows AND a server error marker.
+    // Means the pipeline stream completed but visits could not be loaded.
+    var visitsFailed = pipelines && pipelines.visits
+        && pipelines.visits.rows && pipelines.visits.rows.length === 0
+        && pipelines.visits.metadata && pipelines.visits.metadata.error;
 
     // Build FLW names from workers prop
     var flwNameMap = React.useMemo(function() {
@@ -369,7 +281,8 @@ def _build_v2_render_code() -> str:
         if (!pipelinesReady || !actions || !actions.startJob) return;
         if (jobRunning) return;
 
-        var sessionFlwsList = instance.state?.selected_workers || instance.state?.selected_flws || [];
+        var sessionFlwsList = instance.state?.selected_workers || instance.state?.selected_flws
+            || Object.keys(flwNameMap);
 
         setJobRunning(true);
         setJobError(null);
@@ -379,10 +292,10 @@ def _build_v2_render_code() -> str:
 
         actions.startJob(instance.id, {
             job_type: 'mbw_monitoring',
-            pipeline_data: {
-                visits: { rows: pipelines.visits.rows },
-                registrations: { rows: pipelines.registrations.rows },
-                gs_forms: { rows: pipelines.gs_forms.rows },
+            pipeline_ids: {
+                visits: (pipelines.visits && pipelines.visits.metadata && pipelines.visits.metadata.pipeline_id) || null,
+                registrations: (pipelines.registrations && pipelines.registrations.metadata && pipelines.registrations.metadata.pipeline_id) || null,
+                gs_forms: (pipelines.gs_forms && pipelines.gs_forms.metadata && pipelines.gs_forms.metadata.pipeline_id) || null,
             },
             active_usernames: sessionFlwsList,
             flw_names: flwNameMap,
@@ -418,6 +331,7 @@ def _build_v2_render_code() -> str:
                 },
                 // onComplete
                 function(results) {
+                  try {
                     setJobRunning(false);
                     setAnalysisComplete(true);
 
@@ -429,10 +343,32 @@ def _build_v2_render_code() -> str:
                     var performanceData = results.performance_data || [];
 
                     // Build overview flw_summaries by merging data from multiple result sections
-                    var activeUsernamesList = instance.state?.selected_workers || instance.state?.selected_flws || [];
+                    var activeUsernamesList = instance.state?.selected_workers || instance.state?.selected_flws
+                        || Object.keys(flwNameMap);
+
+                    // Build last_active lookup from workers prop (mirrors v1 SSE flw_last_active dict)
+                    var lastActiveMap = {};
+                    (workers || []).forEach(function(w) {
+                        if (w.username && w.last_active) {
+                            lastActiveMap[w.username.toLowerCase()] = w.last_active;
+                        }
+                    });
+
                     var overviewFlwSummaries = activeUsernamesList.map(function(username) {
                         var uLower = username.toLowerCase();
                         var displayName = flwNameMap[uLower] || username;
+
+                        // Compute last_active_days / last_active_date from workers prop
+                        var laStr = lastActiveMap[uLower];
+                        var lastActiveDays = null;
+                        var lastActiveDate = null;
+                        if (laStr) {
+                            var laDt = new Date(laStr);
+                            if (!isNaN(laDt.getTime())) {
+                                lastActiveDays = Math.max(0, Math.floor((Date.now() - laDt.getTime()) / 86400000));
+                                lastActiveDate = laDt.toISOString().replace('T', ' ').slice(0, 16);
+                            }
+                        }
 
                         // From GPS data
                         var gpsFlw = (gpsData.flw_summaries || []).find(function(g) { return g.username === uLower; }) || {};
@@ -467,6 +403,8 @@ def _build_v2_render_code() -> str:
                         return Object.assign({
                             username: uLower,
                             display_name: displayName,
+                            last_active_days: lastActiveDays,
+                            last_active_date: lastActiveDate,
                             cases_registered: motherCount,
                             eligible_mothers: totalEligible,
                             first_gs_score: null,  // populated below from gs_forms pipeline
@@ -488,7 +426,7 @@ def _build_v2_render_code() -> str:
                     var gsFormRows = (pipelines.gs_forms && pipelines.gs_forms.rows) || [];
                     var gsByFlw = {};
                     gsFormRows.forEach(function(row) {
-                        var connectId = (row.computed || row).user_connect_id || row.username || '';
+                        var connectId = ((row.computed || row).load_flw_connect_id || '').toLowerCase();
                         var uLower = connectId.toLowerCase();
                         var score = parseFloat((row.computed || row).gs_score);
                         if (!isNaN(score)) {
@@ -527,6 +465,12 @@ def _build_v2_render_code() -> str:
                     if (builtDashData.monitoring_session?.flw_results) {
                         setWorkerResults(builtDashData.monitoring_session.flw_results);
                     }
+                  } catch(err) {
+                    setJobRunning(false);
+                    setAnalysisComplete(false);
+                    setJobError('Failed to process results: ' + (err.message || String(err)));
+                    console.error('[MBW] onComplete error:', err);
+                  }
                 },
                 // onError
                 function(error) {
@@ -552,80 +496,35 @@ def _build_v2_render_code() -> str:
         return function() {
             if (jobCleanupRef.current) jobCleanupRef.current();
         };
-    }, []);"""
+    }, []);
+    // @v2-replace:data-loading:end"""
 
-    code = code.replace(_SSE_LOADING, _PIPELINE_LOADING)
-
-    # =====================================================================
-    # 3. Replace sticky header dependency on sseComplete with analysisComplete
-    # =====================================================================
-    code = code.replace(
-        "}, [activeTab, sseComplete]);",
-        "}, [activeTab, analysisComplete]);"
+    code = _replace_between_inclusive(
+        code,
+        "// @v2-replace:data-loading:start",
+        "// @v2-replace:data-loading:end",
+        _PIPELINE_LOADING,
     )
 
     # =====================================================================
-    # 4. OAuth expired state check — KEPT in v2 (pipelines need auth too)
+    # R3. Replace sticky header dependency on sseComplete with analysisComplete
+    # Marker: // @v2-replace:sticky-deps:start/end in template.py
     # =====================================================================
-    # No changes needed — the v1 OAuth expired state block is preserved as-is.
+    code = _replace_between_inclusive(
+        code,
+        "// @v2-replace:sticky-deps:start",
+        "// @v2-replace:sticky-deps:end",
+        "// @v2-replace:sticky-deps:start\n"
+        "    }, [activeTab, analysisComplete, showAggregateMap, expandedGps]);\n"
+        "    // @v2-replace:sticky-deps:end",
+    )
 
     # =====================================================================
-    # 5. Replace Loading state with pipeline/job loading UI
+    # R4. Replace Loading + Error UI with pipeline/job loading UI
+    # Marker: // @v2-replace:loading-ui:start/end in template.py
     # =====================================================================
-    _SSE_LOADING_UI = """    // ---- Loading state ----
-    if (!sseComplete && !sseError) {
-        return (
-            <div className="space-y-4">
-                <div className="bg-white rounded-lg shadow-sm p-6">
-                    <h2 className="text-xl font-bold text-gray-900">{instance.state?.title || 'MBW Monitoring'}</h2>
-                    <p className="text-gray-500 mt-1">Loading dashboard data...</p>
-                </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <div className="flex items-center gap-3 mb-3">
-                        <div className="animate-spin h-5 w-5 border-2 border-blue-600 border-t-transparent rounded-full"></div>
-                        <span className="font-medium text-blue-800">Loading data via SSE...</span>
-                    </div>
-                    <div className="space-y-1 text-sm text-blue-700 max-h-40 overflow-y-auto">
-                        {sseMessages.map(function(msg, i) {
-                            return <div key={i}>{msg}</div>;
-                        })}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // ---- Error state ----
-    if (sseError) {
-        return (
-            <div className="space-y-4">
-                <div className="bg-white rounded-lg shadow-sm p-6">
-                    <h2 className="text-xl font-bold text-gray-900">{instance.state?.title || 'MBW Monitoring'}</h2>
-                </div>
-                <div className={sseAuthorizeUrl ? "bg-amber-50 border border-amber-300 rounded-lg p-4" : "bg-red-50 border border-red-200 rounded-lg p-4"}>
-                    <div className={"flex items-center gap-2 " + (sseAuthorizeUrl ? "text-amber-800" : "text-red-800")}>
-                        <i className={"fa-solid " + (sseAuthorizeUrl ? "fa-link-slash" : "fa-circle-exclamation")}></i>
-                        <span className="font-medium">{sseError}</span>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                        {sseAuthorizeUrl ? (
-                            <a href={sseAuthorizeUrl}
-                               className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 inline-block no-underline">
-                                <i className="fa-solid fa-arrow-right-to-bracket mr-1"></i> Authorize CommCare
-                            </a>
-                        ) : (
-                            <button onClick={function() { window.location.reload(); }}
-                                    className="px-4 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700">
-                                Retry
-                            </button>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    }"""
-
-    _PIPELINE_LOADING_UI = """    // ---- Pipeline loading / Job running / Error state ----
+    _PIPELINE_LOADING_UI = """    // @v2-replace:loading-ui:start
+    // ---- Pipeline loading / Job running / Error state ----
     if (!analysisComplete || !dashData) {
         var visitCount = (pipelines && pipelines.visits && pipelines.visits.rows) ? pipelines.visits.rows.length : 0;
         var regCount = (pipelines && pipelines.registrations && pipelines.registrations.rows) ? pipelines.registrations.rows.length : 0;
@@ -642,23 +541,68 @@ def _build_v2_render_code() -> str:
                 <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                     <h3 className="text-sm font-semibold text-gray-700 mb-3">Pipeline Data Sources</h3>
                     <div className="space-y-2">
-                        <div className="flex items-center gap-3">
-                            <i className={'fa-solid ' + (visitCount > 0 ? 'fa-circle-check text-green-500' : 'fa-spinner fa-spin text-blue-500')}></i>
-                            <span className="text-sm text-gray-700">Visit Forms</span>
-                            <span className="text-xs text-gray-500 ml-auto">{visitCount > 0 ? visitCount + ' rows' : 'Loading...'}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <i className={'fa-solid ' + (regCount > 0 ? 'fa-circle-check text-green-500' : (pipelines && pipelines.registrations && pipelines.registrations.rows ? 'fa-circle-check text-amber-500' : 'fa-spinner fa-spin text-blue-500'))}></i>
-                            <span className="text-sm text-gray-700">Registration Forms</span>
-                            <span className="text-xs text-gray-500 ml-auto">{regCount > 0 ? regCount + ' rows' : (pipelines && pipelines.registrations && pipelines.registrations.rows ? '0 rows (none found)' : 'Loading...')}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <i className={'fa-solid ' + (gsCount > 0 ? 'fa-circle-check text-green-500' : (pipelines && pipelines.gs_forms && pipelines.gs_forms.rows ? 'fa-circle-check text-amber-500' : 'fa-spinner fa-spin text-blue-500'))}></i>
-                            <span className="text-sm text-gray-700">Gold Standard Forms</span>
-                            <span className="text-xs text-gray-500 ml-auto">{gsCount > 0 ? gsCount + ' rows' : (pipelines && pipelines.gs_forms && pipelines.gs_forms.rows ? '0 rows (none found)' : 'Loading...')}</span>
-                        </div>
+                        {(function() {
+                            // Helper: render one pipeline row with smart status detection.
+                            // After the SSE stream closes, the server pre-populates all aliases
+                            // with {rows:[], metadata:{error:"Not loaded"}}. So:
+                            //   pipelines[alias] === undefined  → stream still in progress
+                            //   pipelines[alias].metadata?.error → pipeline failed (0 rows + error)
+                            //   pipelines[alias].rows.length > 0 → success
+                            var pipelineRow = function(alias, label, required) {
+                                var p = pipelines && pipelines[alias];
+                                var count = p && p.rows ? p.rows.length : null;
+                                var failed = count === 0 && p && p.metadata && p.metadata.error;
+                                var icon, text;
+                                if (count > 0) {
+                                    icon = 'fa-circle-check text-green-500';
+                                    text = count + ' rows';
+                                } else if (failed) {
+                                    icon = required ? 'fa-circle-exclamation text-red-500' : 'fa-circle-exclamation text-amber-500';
+                                    text = required ? '0 rows (failed — reload page to retry)' : '0 rows (not found)';
+                                } else {
+                                    // count === null: alias not yet in pipelines → still loading
+                                    icon = 'fa-spinner fa-spin text-blue-500';
+                                    text = 'Loading...';
+                                }
+                                return (
+                                    <div className="flex items-center gap-3" key={alias}>
+                                        <i className={'fa-solid ' + icon}></i>
+                                        <span className="text-sm text-gray-700">{label}</span>
+                                        <span className="text-xs text-gray-500 ml-auto">{text}</span>
+                                    </div>
+                                );
+                            };
+                            return [
+                                pipelineRow('visits', 'Visit Forms', true),
+                                pipelineRow('registrations', 'Registration Forms', false),
+                                pipelineRow('gs_forms', 'Gold Standard Forms', false),
+                            ];
+                        })()}
                     </div>
                 </div>
+
+                {/* Visit pipeline failure prompt */}
+                {(function() {
+                    var vp = pipelines && pipelines.visits;
+                    var visitsFailed = vp && vp.rows && vp.rows.length === 0 && vp.metadata && vp.metadata.error;
+                    if (!visitsFailed) return null;
+                    return (
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                            <div className="flex items-center gap-2 text-red-800 mb-2">
+                                <i className="fa-solid fa-circle-exclamation"></i>
+                                <span className="font-medium">Visit Forms pipeline failed to load</span>
+                            </div>
+                            <p className="text-sm text-red-700 mb-3">
+                                The visits pipeline returned 0 rows. This may be a temporary error or a large
+                                dataset still being indexed. Reload the page to retry.
+                            </p>
+                            <button onClick={function() { window.location.reload(); }}
+                                    className="px-4 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700">
+                                <i className="fa-solid fa-rotate-right mr-1"></i> Reload &amp; Retry
+                            </button>
+                        </div>
+                    );
+                })()}
 
                 {/* Error State */}
                 {jobError && (
@@ -710,8 +654,8 @@ def _build_v2_render_code() -> str:
                     </div>
                 )}
 
-                {/* Waiting for pipelines */}
-                {!jobRunning && !jobError && !pipelinesReady && pipelinesPartial && (
+                {/* Waiting for pipelines — only when at least one succeeded and visits hasn't failed */}
+                {!jobRunning && !jobError && !pipelinesReady && pipelinesPartial && !visitsFailed && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                         <div className="flex items-center gap-3">
                             <div className="animate-spin h-5 w-5 border-2 border-blue-600 border-t-transparent rounded-full"></div>
@@ -730,135 +674,76 @@ def _build_v2_render_code() -> str:
                 )}
             </div>
         );
-    }"""
+    }
+    // @v2-replace:loading-ui:end"""
 
-    code = code.replace(_SSE_LOADING_UI, _PIPELINE_LOADING_UI)
-
-    # =====================================================================
-    # 6. Replace the "Refresh Data" button behavior and snapshot indicator
-    # =====================================================================
-    # Replace the snapshot/refresh button in the tab bar
-    code = code.replace(
-        """                <div className="flex items-center gap-3 ml-auto">
-                    {fromSnapshot && snapshotTimestamp && (
-                        <div className="flex items-center gap-2 text-sm text-gray-500">
-                            <span>Data from: {new Date(snapshotTimestamp).toLocaleString()}</span>
-                            <span className="text-amber-600 text-xs font-medium">(snapshot)</span>
-                        </div>
-                    )}
-                    <button onClick={function() {
-                        setRefreshTrigger(function(n) { return n + 1; });
-                        setDashData(null);
-                        setSseComplete(false);
-                    }} disabled={!sseComplete}
-                    className={'inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-md border transition-colors ' +
-                        (sseComplete
-                            ? 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100'
-                            : 'text-gray-400 bg-gray-50 border-gray-200 cursor-not-allowed')}>
-                        {'\\u21BB'} Refresh Data
-                    </button>
-                </div>""",
-        """                <div className="flex items-center gap-3 ml-auto">
-                    <button onClick={function() {
-                        setDashData(null);
-                        setAnalysisComplete(false);
-                        setJobMessages([]);
-                        setJobError(null);
-                    }} disabled={jobRunning}
-                    className={'inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-md border transition-colors ' +
-                        (analysisComplete && !jobRunning
-                            ? 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100'
-                            : 'text-gray-400 bg-gray-50 border-gray-200 cursor-not-allowed')}>
-                        {'\\u21BB'} Re-run Analysis
-                    </button>
-                </div>"""
-    )
-
-    # =====================================================================
-    # 7. Replace resetFilters references to SSE state
-    # =====================================================================
-    code = code.replace(
-        """    var resetFilters = function() {
-        setFilterFlws([]);
-        setFilterMothers([]);
-        var needsRefresh = appliedAppVersionOp !== 'gt' || appliedAppVersionVal !== '14';
-        setAppVersionOp('gt');
-        setAppVersionVal('14');
-        setAppliedAppVersionOp('gt');
-        setAppliedAppVersionVal('14');
-        if (needsRefresh) {
-            setRefreshTrigger(function(n) { return n + 1; });
-            setDashData(null);
-            setSseComplete(false);
-        }
-    };""",
-        """    var resetFilters = function() {
-        setFilterFlws([]);
-        setFilterMothers([]);
-        setAppVersionOp('gt');
-        setAppVersionVal('14');
-        setAppliedAppVersionOp('gt');
-        setAppliedAppVersionVal('14');
-    };"""
-    )
-
-    # =====================================================================
-    # 8. Replace the App Version Apply button that referenced SSE state
-    # =====================================================================
-    code = code.replace(
-        """                    <button onClick={function() {
-                                var opChanged = appVersionOp !== appliedAppVersionOp;
-                                var valChanged = appVersionVal !== appliedAppVersionVal;
-                                if (opChanged || valChanged) {
-                                    setAppliedAppVersionOp(appVersionOp);
-                                    setAppliedAppVersionVal(appVersionVal);
-                                    setRefreshTrigger(function(n) { return n + 1; });
-                                    setDashData(null);
-                                    setSseComplete(false);
-                                }
-                            }}
-                            className="inline-flex items-center px-4 py-1.5 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700">
-                        <i className="fa-solid fa-filter mr-1"></i> Apply
-                    </button>""",
-        """                    <button onClick={function() {
-                                setAppliedAppVersionOp(appVersionOp);
-                                setAppliedAppVersionVal(appVersionVal);
-                            }}
-                            className="inline-flex items-center px-4 py-1.5 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700">
-                        <i className="fa-solid fa-filter mr-1"></i> Apply
-                    </button>"""
-    )
-
-    # =====================================================================
-    # 9. Replace "from_cache" indicator with pipeline-based indicator
-    # =====================================================================
-    code = code.replace(
-        """                {dashData?.from_cache && (
-                    <div className="mt-2 text-xs text-gray-400">Data loaded from cache</div>
-                )}""",
-        """                {dashData && (
-                    <div className="mt-2 text-xs text-gray-400">Data loaded via pipeline analysis</div>
-                )}"""
-    )
-
-    # =====================================================================
-    # 10. Replace visit_status_distribution path for v2 data shape
-    # =====================================================================
-    # In v1: dashData?.overview_data?.visit_status_distribution
-    # In v2: same path — we already build it there in the onComplete handler
-    # No change needed here.
-
-    # =====================================================================
-    # 11. Additional cleanup: replace remaining SSE references
-    # =====================================================================
-    # The tab bar refresh button and snapshot indicator may have Unicode
-    # chars that made exact string matching fail. Use marker-based replacement.
-
-    # Replace the tab bar right section (snapshot indicator + refresh button)
-    code = _replace_between(
+    code = _replace_between_inclusive(
         code,
-        '                <div className="flex items-center gap-3 ml-auto">',
-        "                </div>\n            </div>\n\n            {/* Filter Bar */}",
+        "// @v2-replace:loading-ui:start",
+        "// @v2-replace:loading-ui:end",
+        _PIPELINE_LOADING_UI,
+    )
+
+    # =====================================================================
+    # R5. Replace OAuth retry button (reload page instead of SSE refresh)
+    # Marker: {/* @v2-replace:oauth-retry:start/end */} in template.py
+    # =====================================================================
+    code = _replace_between_inclusive(
+        code,
+        "{/* @v2-replace:oauth-retry:start */}",
+        "{/* @v2-replace:oauth-retry:end */}",
+        "{/* @v2-replace:oauth-retry:start */}\n"
+        '                    <button onClick={function() { window.location.reload(); }}\n'
+        '                            className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">\n'
+        '                        <i className="fa-solid fa-rotate-right mr-1"></i> Retry\n'
+        "                    </button>\n"
+        "                    {/* @v2-replace:oauth-retry:end */}",
+    )
+
+    # =====================================================================
+    # R6. Replace resetFilters (remove SSE refresh logic)
+    # Marker: // @v2-replace:reset-filters:start/end in template.py
+    # =====================================================================
+    code = _replace_between_inclusive(
+        code,
+        "// @v2-replace:reset-filters:start",
+        "// @v2-replace:reset-filters:end",
+        "// @v2-replace:reset-filters:start\n"
+        "    var resetFilters = function() {\n"
+        "        setFilterFlws([]);\n"
+        "        setFilterMothers([]);\n"
+        "        setAppVersionOp('gt');\n"
+        "        setAppVersionVal('14');\n"
+        "        setAppliedAppVersionOp('gt');\n"
+        "        setAppliedAppVersionVal('14');\n"
+        "    };\n"
+        "    // @v2-replace:reset-filters:end",
+    )
+
+    # =====================================================================
+    # R7. Replace cache indicator text
+    # Marker: {/* @v2-replace:cache-indicator:start/end */} in template.py
+    # =====================================================================
+    code = _replace_between_inclusive(
+        code,
+        "{/* @v2-replace:cache-indicator:start */}",
+        "{/* @v2-replace:cache-indicator:end */}",
+        "{/* @v2-replace:cache-indicator:start */}\n"
+        "                {dashData && (\n"
+        '                    <div className="mt-2 text-xs text-gray-400">Data loaded via pipeline analysis</div>\n'
+        "                )}\n"
+        "                {/* @v2-replace:cache-indicator:end */}",
+    )
+
+    # =====================================================================
+    # R8. Replace tab bar actions (snapshot badge + refresh → re-run analysis)
+    # Marker: {/* @v2-replace:tab-bar-actions:start/end */} in template.py
+    # =====================================================================
+    code = _replace_between_inclusive(
+        code,
+        "{/* @v2-replace:tab-bar-actions:start */}",
+        "{/* @v2-replace:tab-bar-actions:end */}",
+        "{/* @v2-replace:tab-bar-actions:start */}\n"
         '                <div className="flex items-center gap-3 ml-auto">\n'
         "                    <button onClick={function() {\n"
         "                        setDashData(null);\n"
@@ -872,55 +757,57 @@ def _build_v2_render_code() -> str:
         "                            ? 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100'\n"
         "                            : 'text-gray-400 bg-gray-50 border-gray-200 cursor-not-allowed')}>\n"
         "                        {'\\u21BB'} Re-run Analysis\n"
-        "                    </button>\n",
-    )
-
-    # OCS OAuth check — KEPT in v2 (uses oauthStatus, same as v1)
-
-    # Replace fromSnapshot reference in follow-up drilldown
-    code = code.replace("fromSnapshot ? ", "false ? ")
-
-    # Replace the from_cache indicator
-    code = code.replace(
-        "{dashData?.from_cache && (",
-        "{dashData && (",
-    )
-    code = code.replace(
-        "Data loaded from cache",
-        "Data loaded via pipeline analysis",
-    )
-
-    # Replace OAuth Retry button to reload page (no refreshTrigger in v2)
-    code = code.replace(
-        "setRefreshTrigger(function(c) { return c + 1; });",
-        "window.location.reload();",
-    )
-
-    # Replace App Version Apply button SSE references
-    code = code.replace(
-        "setRefreshTrigger(function(n) { return n + 1; });\n"
-        "                                    setDashData(null);\n"
-        "                                    setSseComplete(false);",
-        "// App version filter applied (no SSE refresh needed in v2)",
+        "                    </button>\n"
+        "                </div>\n"
+        "                {/* @v2-replace:tab-bar-actions:end */}",
     )
 
     # =====================================================================
-    # 12. Final safety check: ensure no SSE state refs remain
+    # R9. Replace Apply button SSE refresh with no-op comment
+    # Marker: // @v2-replace:apply-refresh:start/end in template.py
+    # =====================================================================
+    code = _replace_between_inclusive(
+        code,
+        "// @v2-replace:apply-refresh:start",
+        "// @v2-replace:apply-refresh:end",
+        "// @v2-replace:apply-refresh:start\n"
+        "                                    // App version filter applied (no SSE refresh needed in v2)\n"
+        "                                    // @v2-replace:apply-refresh:end",
+    )
+
+    # =====================================================================
+    # R10. Replace drill-down snapshot conditional with simple message
+    # Marker: {/* @v2-replace:snapshot-check:start/end */} in template.py
+    # =====================================================================
+    code = _replace_between_inclusive(
+        code,
+        "{/* @v2-replace:snapshot-check:start */}",
+        "{/* @v2-replace:snapshot-check:end */}",
+        "{/* @v2-replace:snapshot-check:start */}\n"
+        "                                                                {'No due visits found for this FLW.'}\n"
+        "                                                                {/* @v2-replace:snapshot-check:end */}",
+    )
+
+    # =====================================================================
+    # Safety check: ensure no SSE state refs remain in the final code
     # =====================================================================
     _sse_terms = [
         "sseComplete",
         "sseError",
         "sseMessages",
         "sseAuthorizeUrl",
+        "sseCleanupRef",
+        "sseSectionsRef",
+        "sseAuthRequired",
         "fromSnapshot",
-        "snapshotTimestamp",
         "refreshTrigger",
+        "bustCacheRef",
         "setSseComplete",
         "setSseError",
         "setSseMessages",
         "setSseAuthorizeUrl",
+        "setSseAuthRequired",
         "setFromSnapshot",
-        "setSnapshotTimestamp",
         "setRefreshTrigger",
         "EventSource",
     ]

@@ -54,6 +54,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
     // =========================================================================
     // STEP 2: Dashboard State
     // =========================================================================
+    // @v2-replace:sse-state:start
     var [dashData, setDashData] = React.useState(null);
     var [sseMessages, setSseMessages] = React.useState([]);
     var [sseError, setSseError] = React.useState(null);
@@ -66,6 +67,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
     var [refreshTrigger, setRefreshTrigger] = React.useState(0);
     var bustCacheRef = React.useRef(false);
     var [oauthStatus, setOauthStatus] = React.useState(null);
+    // @v2-replace:sse-state:end
     var [activeTab, setActiveTab] = React.useState('overview');
     var [guideSection, setGuideSection] = React.useState({});
     var [overviewSearch, setOverviewSearch] = React.useState('');
@@ -256,6 +258,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
         .finally(function() { setHistoryLoading(false); });
     }, [instance.opportunity_id]);
 
+    // @v2-replace:data-loading:start
     // =========================================================================
     // SSE: Load dashboard data (with snapshot-first loading)
     // =========================================================================
@@ -426,6 +429,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
             if (sseCleanupRef.current) sseCleanupRef.current();
         };
     }, [step, instance.id, refreshTrigger]);
+    // @v2-replace:data-loading:end
 
     // =========================================================================
     // Sticky table headers via JS (CSS sticky breaks in Chrome due to ancestors)
@@ -504,7 +508,9 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                 d.thead.style.boxShadow = '';
             });
         };
+    // @v2-replace:sticky-deps:start
     }, [activeTab, sseComplete, showAggregateMap, expandedGps]);
+    // @v2-replace:sticky-deps:end
 
     // Load Leaflet + MarkerCluster from CDN for GPS map
     React.useEffect(function() {
@@ -1000,6 +1006,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
         showToast('Filtered to ' + (flwNames[username] || username));
     };
 
+    // @v2-replace:reset-filters:start
     var resetFilters = function() {
         setFilterFlws([]);
         setFilterMothers([]);
@@ -1018,6 +1025,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
             setSseComplete(false);
         }
     };
+    // @v2-replace:reset-filters:end
 
     // FLW Notes modal helpers
     var openFlwNotesModal = function(username) {
@@ -1279,15 +1287,18 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                             );
                         })}
                     </div>
+                    {/* @v2-replace:oauth-retry:start */}
                     <button onClick={function() { setRefreshTrigger(function(c) { return c + 1; }); }}
                             className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">
                         <i className="fa-solid fa-rotate-right mr-1"></i> Retry
                     </button>
+                    {/* @v2-replace:oauth-retry:end */}
                 </div>
             </div>
         );
     }
 
+    // @v2-replace:loading-ui:start
     // ---- Loading state ----
     if (!sseComplete && !sseError) {
         return (
@@ -1368,6 +1379,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
             </div>
         );
     }
+    // @v2-replace:loading-ui:end
 
     // ---- Dashboard data is loaded ----
     var overviewFlws = (dashData?.overview_data?.flw_summaries || []);
@@ -2089,9 +2101,11 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                     <div className="bg-indigo-600 h-2 rounded-full transition-all"
                          style={{ width: progressPct + '%' }}></div>
                 </div>
+                {/* @v2-replace:cache-indicator:start */}
                 {dashData?.from_cache && (
                     <div className="mt-2 text-xs text-gray-400">Data loaded from cache</div>
                 )}
+                {/* @v2-replace:cache-indicator:end */}
             </div>
 
             {/* Tab Navigation */}
@@ -2116,6 +2130,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                         );
                     })}
                 </nav>
+                {/* @v2-replace:tab-bar-actions:start */}
                 <div className="flex items-center gap-3 ml-auto">
                     {snapshotTimestamp && (
                         <div className="flex items-center gap-2 text-sm text-gray-500">
@@ -2148,6 +2163,7 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                     </button>
                     )}
                 </div>
+                {/* @v2-replace:tab-bar-actions:end */}
             </div>
 
             {/* Filter Bar */}
@@ -2260,9 +2276,11 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                                     setAppliedAppVersionOp(appVersionOp);
                                     setAppliedAppVersionVal(appVersionVal);
                                     setAppliedStatusFilter(statusFilter);
+                                    // @v2-replace:apply-refresh:start
                                     setRefreshTrigger(function(n) { return n + 1; });
                                     setDashData(null);
                                     setSseComplete(false);
+                                    // @v2-replace:apply-refresh:end
                                 }
                             }}
                             className="inline-flex items-center px-4 py-1.5 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700">
@@ -3526,7 +3544,9 @@ RENDER_CODE = """function WorkflowUI({ definition, instance, workers, pipelines,
                                                             </div>
                                                         ) : (
                                                             <div className="p-6 text-center text-gray-500">
+                                                                {/* @v2-replace:snapshot-check:start */}
                                                                 {dataSource === 'snapshot' ? (isCompleted ? 'Drill-down data not available in snapshot.' : 'Drill-down data not available in snapshot. Click "Refresh Data" to load details.') : 'No due visits found for this FLW.'}
+                                                                {/* @v2-replace:snapshot-check:end */}
                                                             </div>
                                                         )}
                                                     </td>

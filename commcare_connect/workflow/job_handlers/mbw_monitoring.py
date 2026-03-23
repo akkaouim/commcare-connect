@@ -160,6 +160,58 @@ def _extract_per_mother_fields(adapted_rows: list[_PipelineRowAdapter]) -> dict:
     }
 
 
+def _reconstruct_registration_forms(flat_rows: list[dict]) -> list[dict]:
+    """Convert flat pipeline registration rows to CCHQ API nested format.
+
+    Pipeline rows have var_visit_N_* fields at top level.
+    followup_analysis expects {"form": {"var_visit_N": {...}}, "metadata": {"username": ...}}.
+    """
+    from commcare_connect.workflow.templates.mbw_monitoring.followup_analysis import VISIT_CREATE_FLAGS
+
+    result = []
+    for row in flat_rows:
+        form = {}
+        for i in range(1, 7):
+            visit_type = row.get(f"var_visit_{i}_visit_type", "")
+            mother_case_id = row.get(f"var_visit_{i}_mother_case_id", "")
+            if not visit_type and not mother_case_id:
+                continue  # slot not used for this mother
+            var_visit = {
+                "visit_type": visit_type,
+                "mother_case_id": mother_case_id,
+                "visit_date_scheduled": row.get(f"var_visit_{i}_visit_date_scheduled", ""),
+                "visit_expiry_date": row.get(f"var_visit_{i}_visit_expiry_date", ""),
+            }
+            # Set the create flag to "1" — presence in pipeline means visit was scheduled
+            create_flag_name = VISIT_CREATE_FLAGS.get(visit_type)
+            if create_flag_name:
+                var_visit[create_flag_name] = "1"
+            form[f"var_visit_{i}"] = var_visit
+
+        # Mother details from pipeline flat fields
+        mother_details = {}
+        if row.get("mother_name"):
+            mother_details["format_mother_name"] = row["mother_name"]
+        if row.get("mother_dob"):
+            mother_details["mother_dob"] = row["mother_dob"]
+        if row.get("mother_phone"):
+            mother_details["phone_number"] = row["mother_phone"]
+        if mother_details:
+            form["mother_details"] = mother_details
+
+        # eligible_full_intervention_bonus at top level of form — required by
+        # extract_mother_metadata_from_forms → _is_eligible → completion_rate
+        eligible = row.get("eligible_full_intervention_bonus", "")
+        if eligible:
+            form["eligible_full_intervention_bonus"] = eligible
+
+        result.append({
+            "form": form,
+            "metadata": {"username": row.get("metadata_username", "")},
+        })
+    return result
+
+
 def _compute_ebf_by_flw(adapted_rows: list[_PipelineRowAdapter]) -> dict[str, int]:
     """Compute % exclusive breastfeeding per FLW from pipeline rows."""
     ebf_counts: dict[str, dict] = {}
@@ -231,6 +283,10 @@ def handle_mbw_monitoring_job(job_config: dict, _access_token: str, progress_cal
     registration_rows = pipeline_data.get("registrations", {}).get("rows", [])
     gs_form_rows = pipeline_data.get("gs_forms", {}).get("rows", [])
 
+    # Reconstruct CCHQ nested format for followup_analysis functions.
+    # Pipeline rows are flat dicts; followup_analysis expects {"form": {"var_visit_N": {...}}}.
+    reconstructed_reg_forms = _reconstruct_registration_forms(registration_rows)
+
     total_records = len(visit_rows) + len(registration_rows) + len(gs_form_rows)
     logger.info(
         "[MBW Job] Starting: %d visits, %d registrations, %d gs_forms, %d active FLWs",
@@ -267,14 +323,40 @@ def handle_mbw_monitoring_job(job_config: dict, _access_token: str, progress_cal
         median_meters = compute_median_meters_per_visit(gps_result.visits)
         median_minutes = compute_median_minutes_per_visit(gps_result.visits)
 
+        # Serialize GPS FLW summaries and merge per-FLW median metrics directly
+        # into each summary dict — the GPS tab reads g.median_meters_per_visit
+        # directly from flw_summary entries (not from a separate lookup dict).
+        gps_flw_summaries = []
+        for flw in gps_result.flw_summaries:
+            summary_dict = serialize_flw_summary(flw)
+            summary_dict["median_meters_per_visit"] = median_meters.get(flw.username)
+            summary_dict["median_minutes_per_visit"] = median_minutes.get(flw.username)
+            gps_flw_summaries.append(summary_dict)
+
+        # Extract lightweight coordinates for the aggregate GPS map.
+        # Mirrors the all_coordinates extraction in v1 views.py.
+        all_coordinates = []
+        for v in gps_result.visits:
+            if v.gps:
+                all_coordinates.append({
+                    "lat": round(v.gps.latitude, 5),
+                    "lng": round(v.gps.longitude, 5),
+                    "u": v.username,
+                    "f": v.is_flagged,
+                    "d": v.visit_date.isoformat() if v.visit_date else None,
+                    "e": v.entity_name,
+                    "m": v.mother_case_id or v.case_id,
+                })
+
         gps_data = {
             "total_visits": gps_result.total_visits,
             "total_flagged": gps_result.total_flagged,
             "date_range_start": gps_result.date_range_start.isoformat() if gps_result.date_range_start else None,
             "date_range_end": gps_result.date_range_end.isoformat() if gps_result.date_range_end else None,
-            "flw_summaries": [serialize_flw_summary(flw) for flw in gps_result.flw_summaries],
+            "flw_summaries": gps_flw_summaries,
             "median_meters_by_flw": median_meters,
             "median_minutes_by_flw": median_minutes,
+            "all_coordinates": all_coordinates,
         }
         results["gps_data"] = gps_data
         results["successful"] += 1
@@ -300,12 +382,12 @@ def handle_mbw_monitoring_job(job_config: dict, _access_token: str, progress_cal
         visit_cases_by_flw = build_followup_from_pipeline(
             adapted_visit_rows,
             active_usernames,
-            registration_forms=registration_rows,
+            registration_forms=reconstructed_reg_forms,
         )
 
         # Extract mother metadata from registration forms
         mother_metadata = extract_mother_metadata_from_forms(
-            registration_rows, current_date=current_date
+            reconstructed_reg_forms, current_date=current_date
         )
 
         # Aggregate per-FLW follow-up summaries
@@ -428,7 +510,7 @@ def handle_mbw_monitoring_job(job_config: dict, _access_token: str, progress_cal
         mother_counts = count_mothers_from_pipeline(
             adapted_visit_rows,
             active_usernames,
-            registration_forms=registration_rows,
+            registration_forms=reconstructed_reg_forms,
         )
 
         ebf_pct_by_flw = _compute_ebf_by_flw(adapted_visit_rows)

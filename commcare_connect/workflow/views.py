@@ -1860,6 +1860,8 @@ def start_job_api(request, run_id):
         if not job_config:
             return JsonResponse({"error": "job_config required"}, status=400)
 
+        logger.info(f"[StartJob] job_config keys: {list(job_config.keys())}, pipeline_ids={job_config.get('pipeline_ids')}")
+
         access_token = request.session.get("labs_oauth", {}).get("access_token")
         if not access_token:
             return JsonResponse({"error": "Not authenticated"}, status=401)
@@ -2091,8 +2093,20 @@ class PipelineDataStreamView(LoginRequiredMixin, View):
 
                 yield send_sse_event("Loading pipeline configurations...")
 
-                # Execute each pipeline source with streaming
-                pipeline_data = {}
+                # Pre-populate all expected aliases as empty so the frontend
+                # always receives every pipeline key in the final event.
+                # This prevents infinite "Loading..." spinners when a pipeline
+                # fails silently (result=None) — the alias will show 0 rows
+                # with an error marker instead of being absent from the event.
+                pipeline_data = {
+                    source.get("alias", f"pipeline_{source.get('pipeline_id', '')}"): {
+                        "rows": [],
+                        "metadata": {"error": "Not loaded", "row_count": 0},
+                    }
+                    for source in definition.pipeline_sources
+                    # Include ALL aliases, even those missing a pipeline_id, so the
+                    # frontend always receives every expected key in the final event.
+                }
 
                 for source in definition.pipeline_sources:
                     pipeline_id = source.get("pipeline_id")
